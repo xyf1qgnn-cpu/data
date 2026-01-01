@@ -1,14 +1,47 @@
 # Requirements Management Index
 
-**Last Updated**: 2026-01-01T13:18:00Z
+**Last Updated**: 2026-01-01T15:49:00Z
 
 ## 📋 Active Requirements
 
 | ID | Name | Status | Started | Last Updated | Progress |
 |----|------|--------|---------|--------------|----------|
+| [pdf-gui-exe](#pdf-gui-exe) | PDF GUI .exe Application | ✅ Complete | 2026-01-01T15:28:00Z | 2026-01-01T15:49:00Z | Requirements specification complete |
 | [workflow-upgrade](#workflow-upgrade) | Workflow 2.0 Upgrade | ✅ Complete | 2025-12-31T23:52:00Z | 2026-01-01T13:18:00Z | Fully implemented and tested |
 
 ## 📁 Requirements Details
+
+### pdf-gui-exe
+**Folder**: `2026-01-01-1528-pdf-gui-exe/`
+
+**Description**: Package existing CFST data extraction workflow into Windows .exe with GUI interface, including file selection, progress bar, dual output areas (logs/errors), and secure API key management.
+
+**Current Status**: ✅ Complete - Requirements specification ready for implementation
+
+**Files**:
+- `00-initial-request.md` - Original request and task description
+- `01-discovery-questions.md` - Discovery phase questions
+- `02-discovery-answers.md` - Discovery phase answers
+- `03-context-findings.md` - Context analysis and research findings
+- `04-detail-questions.md` - Detail phase questions
+- `05-detail-answers.md` - Detail phase answers
+- `06-requirements-spec.md` - Complete requirements specification
+- `metadata.json` - Metadata and status information
+
+**Progress**:
+- ✅ Discovery phase: 5/5 questions answered
+- ✅ Detail phase: 5/5 questions answered
+- ✅ Requirements specification generated
+- ⏳ Ready for implementation
+
+**Key Decisions**:
+- **GUI Framework**: PySide6 (Qt for Python)
+- **Packaging Tool**: PyInstaller
+- **Key Storage**: keyring + cryptography with Windows Credential Manager
+- **Threading**: QThread with signal/slot architecture
+- **Target Platform**: Windows 10/11 64-bit only (.exe)
+
+**See**: `06-requirements-spec.md` for comprehensive implementation requirements.
 
 ### workflow-upgrade
 **Folder**: `2025-12-31-2352-workflow-upgrade/`
@@ -46,8 +79,8 @@
 
 ## 📊 Statistics
 
-- **Total Requirements**: 1
-- **Complete**: 1
+- **Total Requirements**: 2
+- **Complete**: 2
 - **In Progress**: 0
 - **Not Started**: 0
 
