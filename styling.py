@@ -29,8 +29,16 @@ def apply_excel_styling(df: pd.DataFrame, writer: pd.ExcelWriter, sheet_name: st
         """
         Apply light red background to rows needing manual review.
         """
-        if row.get('needs_manual_check', False):
-            return ['background-color: #FFCCCC'] * len(row)
+        # 使用重命名后的列名 'Needs Manual Check'
+        if 'Needs Manual Check' in row.index:
+            needs_check = row['Needs Manual Check']
+            # 处理各种可能的布尔值表示：True/False, 1/0, 'True'/'False'
+            if isinstance(needs_check, bool) and needs_check:
+                return ['background-color: #FFCCCC'] * len(row)
+            elif isinstance(needs_check, (int, float)) and needs_check:
+                return ['background-color: #FFCCCC'] * len(row)
+            elif isinstance(needs_check, str) and needs_check.lower() in ('true', '1', 'yes'):
+                return ['background-color: #FFCCCC'] * len(row)
         return [''] * len(row)
 
     # Apply styling if DataFrame is not empty
@@ -38,8 +46,15 @@ def apply_excel_styling(df: pd.DataFrame, writer: pd.ExcelWriter, sheet_name: st
         # Create a Styler object
         styler = df.style
 
-        # Apply highlighting for manual check rows
-        if 'needs_manual_check' in df.columns:
+        # Apply center alignment first (基础样式)
+        all_columns = df.columns.tolist()
+        columns_to_center = [col for col in all_columns if col != 'Ref.No.']
+        if columns_to_center:
+            center_style = {'text-align': 'center'}
+            styler = styler.set_properties(subset=columns_to_center, **center_style)
+
+        # Apply highlighting for manual check rows (叠加样式)
+        if 'Needs Manual Check' in df.columns:
             styler = styler.apply(highlight_manual_check, axis=1)
 
         # Export styled DataFrame to Excel
