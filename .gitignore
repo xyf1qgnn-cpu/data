@@ -47,4 +47,6 @@ venv.bak/
 # data/
 
 # --- Jupyter Notebook ---
-.ipynb_checkpoints/
+.ipynb_checkpoints/*.pkg
+dist/
+build/
