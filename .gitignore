@@ -41,7 +41,7 @@ venv.bak/
 *.sqlite
 # 如果你的 data 文件夹里有巨大的 csv/json/zip 想要忽略，可以取消下面的注释：
 *.csv
-.xlsx
+*.xlsx
 # *.json
 # *.zip
 # data/
