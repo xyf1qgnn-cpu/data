@@ -4,6 +4,11 @@ import shutil
 import pdfplumber
 import pandas as pd
 from openai import OpenAI
+import instructor
+from models import SpecimenData, ExtractionResult
+from validation import validate_dataframe, get_validation_summary
+from styling import export_to_excel_with_styling, generate_validation_report, reorder_columns_for_export
+from processing import optimize_text_for_extraction
 
 # Configuration
 # Base directory (script location)
@@ -75,35 +80,41 @@ SYSTEM_PROMPT = """
 * **Group_C (Round_ended)**: 圆端形/椭圆形。 
     - `b` = Major Axis (长轴), `h` = Minor Axis (短轴). (Must satisfy `b >= h`). 
 
-# 2. Data Extraction Dictionary (Precise Definitions) 
-请严格基于以下定义提取数据： 
+# 2. Data Extraction Dictionary (Precise Definitions)
+请严格基于以下定义提取数据：
 
-* **Basic Info**: 
-    - `ref_no`: Leave blank (Python will auto-fill filename). 
-    - `specimen_label`: The unique ID/Label of the specimen. 
+* **Basic Info**:
+    - `ref_no`: Leave blank (Python will auto-fill filename).
+    - `specimen_label`: The unique ID/Label of the specimen.
 
-* **Material Properties**: 
-    - `fc_value`: Concrete compressive strength **value** only (MPa). 
-    - `fc_type`: Description (e.g., "Cube 150", "Cylinder 150x300"). 
-    - `fy`: Yield strength of steel (MPa). 
-    - `r_ratio`: Recycled aggregate ratio (%). Fill `0` if normal concrete. 
+* **Material Properties**:
+    - `fc_value`: Concrete compressive strength **value** only (MPa).
+    - `fc_type`: Description (e.g., "Cube 150", "Cylinder 150x300"，"prism 150×150×300mm").示例中均为标准的立方体,圆柱体或棱柱体(轴心)抗压强度。若文中未说明规格，则只描述"cube"，"cylinder"，"prism"。
+    - `fy`: Yield strength of steel (MPa).
+    - `r_ratio`: Recycled aggregate ratio (%). Fill `0` if normal concrete.
 
-* **Geometric Dimensions**: 
-    - `b` & `h`: See Section 1 rules (mm). 
-    - `t`: Thickness of the steel tube (mm). 
-    - `r0`: External corner/radius (mm). **Calculate strictly as follows**: 
-        - For **Group_A**: Always fill `0`. 
-        - For **Group_B**: Fill `h / 2` (i.e., Radius). 
-        - For **Group_C**: Fill `h / 2` (Radius of the circular ends). 
-    - `L`: Length of the specimen (mm). 
+* **Geometric Dimensions**:
+    - `b` & `h`: See Section 1 rules (mm).
+    - `t`: Thickness of the steel tube (mm).
+    - `r0`: External corner/radius (mm). **Calculate strictly as follows**:
+        - For **Group_A**: Always fill `0`.
+        - For **Group_B**: Fill `h / 2` (i.e., Radius).
+        - For **Group_C**: Fill `h / 2` (Radius of the circular ends).
+    - `L`: Length of the specimen (mm).
 
-* **Loading & Results**: 
-    - `e1`, `e2`: Eccentricity (mm). Axial = 0. 
-    - `n_exp`: **Experimental** Ultimate Bearing Capacity ($N_{exp}$/Peak Load). Unit: kN. **Exclude** FEA/Calculated results. 
+* **Loading & Results**:
+    - `e1`, `e2`: Eccentricity (mm).e1为上端偏心，e2为下端偏心,如果未明确定义上下端偏心，则默认e1=e2=文中的偏心e(eccentricity). Axial = 0. 
+    - `n_exp`: **Experimental** Ultimate Bearing Capacity ($N_{exp}$/Peak Load). Unit: kN. **Exclude** FEA/Calculated results.
 
-* **Formatting**: 
-    - `fcy150`: Always leave as empty string `""`. 
-    - Remove units from numeric fields. 
+* **Source Evidence (NEW for Workflow 2.0)**:
+    - `source_evidence`: **必须为每个数值提供源文档中的确切文本证据**
+    - 例如：如果 `fc_value = 30.5`，source_evidence 应为 "混凝土抗压强度为 30.5 MPa"
+    - 证据应直接来自源文档文本，不要修改或解释
+    - 每个字段的证据应分开，用分号分隔
+
+* **Formatting**:
+    - `fcy150`: Always leave as empty string `""`.
+    - Remove units from numeric fields.
 
 # 3. Output Format (JSON Only) 
 Output a JSON object with keys: "Group_A", "Group_B", "Group_C", "is_valid", "reason". 
@@ -151,25 +162,30 @@ def extract_text_from_pdf(pdf_path):
     return text
 
 def extract_data_with_ai(client, text):
-    """调用DeepSeek API提取数据"""
+    """调用DeepSeek API提取数据（使用instructor结构化输出）"""
     if not text.strip():
         print("Warning: Extracted text is empty.")
         return None
 
     try:
-        response = client.chat.completions.create(
+        # Optimize text for extraction using intelligent segmentation
+        optimized_text = optimize_text_for_extraction(text)
+        print(f"  - Text optimized: {len(text)} -> {len(optimized_text)} characters")
+
+        # Use instructor to get structured output
+        result = client.chat.completions.create(
             model=MODEL_NAME,
+            response_model=ExtractionResult,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Extract data from this text:\n" + text[:50000]} # Truncate if too long to avoid token limits, adjust as needed
+                {"role": "user", "content": "Extract data from this text:\n" + optimized_text}
             ],
-            response_format={"type": "json_object"},
             temperature=0.1,
             max_tokens=8192
         )
-        
-        content = response.choices[0].message.content
-        return json.loads(content)
+
+        # Convert Pydantic model to dict for backward compatibility
+        return result.model_dump()
     except Exception as e:
         print(f"Error calling API: {e}")
         return None
@@ -205,8 +221,8 @@ def move_excluded_file(file_path):
         print(f"  -> Error moving file {filename}: {e}")
 
 def main():
-    # Initialize OpenAI client for DeepSeek
-    client = OpenAI(api_key=API_KEY, base_url=BASE_URL)
+    # Initialize OpenAI client for DeepSeek with instructor patch
+    client = instructor.patch(OpenAI(api_key=API_KEY, base_url=BASE_URL))
     
     # Storage for processed data
     all_data = {
@@ -269,43 +285,62 @@ def main():
             print(f"  - Failed to extract data for {filename} (API Error or Invalid JSON)")
             move_failed_file(file_path)
 
-    # 4. Save to Excel
+    # 4. Apply physical validation and prepare for export
+    print("\nApplying physical validation...")
+    validated_data = {}
+    validation_reports = []
+
+    for group, items in all_data.items():
+        if items:
+            df = pd.DataFrame(items)
+
+            # Ensure all expected columns exist
+            for col in COL_MAPPING.keys():
+                if col not in df.columns:
+                    df[col] = "" if col == "fcy150" else 0.0
+
+            # Apply physical validation
+            df_validated = validate_dataframe(df)
+            validated_data[group] = df_validated
+
+            # Generate validation report
+            report = generate_validation_report(df_validated, group)
+            validation_reports.append(report)
+            print(report)
+        else:
+            validated_data[group] = pd.DataFrame()
+
+    # 5. Save to Excel with styling
     output_file = os.path.join(OUTPUT_DIRECTORY, "CFST_Extracted_Data.xlsx")
-    print(f"Saving data to {output_file}...")
-    
-    try:
-        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-            has_data = False
-            for group, items in all_data.items():
-                if items:
-                    df = pd.DataFrame(items)
-                    
-                    # Reorder and Rename columns
-                    # Ensure all expected columns exist
-                    for col in COL_MAPPING.keys():
-                        if col not in df.columns:
-                            df[col] = "" # Fill missing columns with empty string
-                            
-                    # Select only the columns defined in mapping, in the correct order
-                    df = df[list(COL_MAPPING.keys())]
-                    
-                    # Rename
-                    df.rename(columns=COL_MAPPING, inplace=True)
-                    
-                    df.to_excel(writer, sheet_name=group, index=False)
-                    has_data = True
-                else:
-                    # Create empty sheet with headers if no data
-                    df = pd.DataFrame(columns=COL_MAPPING.values())
-                    df.to_excel(writer, sheet_name=group, index=False)
-            
-            if has_data:
-                print("Extraction complete. Data saved.")
-            else:
-                print("Extraction complete but no data was found.")
-                
-    except Exception as e:
-        print(f"Error saving Excel file: {e}")
+    print(f"\nSaving data to {output_file}...")
+
+    success = export_to_excel_with_styling(validated_data, output_file, COL_MAPPING)
+
+    if success:
+        print("Extraction complete. Data saved with validation and styling.")
+
+        # Print summary statistics
+        total_specimens = sum(len(df) for df in validated_data.values() if df is not None)
+        total_manual_check = sum(
+            df['needs_manual_check'].sum() if df is not None and 'needs_manual_check' in df.columns else 0
+            for df in validated_data.values()
+        )
+
+        print(f"\n=== Overall Summary ===")
+        print(f"Total specimens extracted: {total_specimens}")
+        print(f"Specimens needing manual check: {total_manual_check}")
+        if total_specimens > 0:
+            percentage = (total_manual_check / total_specimens) * 100
+            print(f"Manual check rate: {percentage:.1f}%")
+
+            # Calculate expected reduction in manual review
+            expected_reduction = 70  # Target from requirements
+            current_rate = percentage
+            if current_rate > 0:
+                reduction_achieved = min(100, (100 - current_rate) / 100 * 100)
+                print(f"Manual review reduction achieved: {reduction_achieved:.1f}% (target: {expected_reduction}%)")
+    else:
+        print("Extraction complete but Excel export failed.")
 
 if __name__ == "__main__":
     main()

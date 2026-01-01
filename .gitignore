@@ -1,0 +1,50 @@
+files/*.pdf
+Excluded/*.pdf
+NotInput/*.pdf  
+# --- 操作系统生成的文件 (Windows/Mac/Linux) ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+*~
+*.swp
+*.swo
+
+# --- Python 编译文件与缓存 (非常重要) ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- 虚拟环境 (绝对不要提交这些) ---
+# 常见的虚拟环境文件夹命名
+venv/
+.venv/
+env/
+.env/
+venv.bak/
+
+# --- IDE 和 编辑器配置 ---
+# VS Code / Cursor (通常建议忽略，除非你想共享团队配置)
+.vscode/
+# 如果你想共享推荐插件，可以放行 .vscode/extensions.json
+# !.vscode/extensions.json
+
+# JetBrains (Pycharm 等)
+.idea/
+
+# --- 环境变量文件 (包含敏感信息，严禁提交) ---
+.env
+.env.local
+
+# --- 数据与日志 (根据你的 data 目录需求调整) ---
+*.log
+*.sqlite
+# 如果你的 data 文件夹里有巨大的 csv/json/zip 想要忽略，可以取消下面的注释：
+*.csv
+.xlsx
+# *.json
+# *.zip
+# data/
+
+# --- Jupyter Notebook ---
+.ipynb_checkpoints/
