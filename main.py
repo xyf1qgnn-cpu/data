@@ -23,7 +23,7 @@ EXCLUDED_DIRECTORY = os.path.join(BASE_DIR, "Excluded")
 # Output Excel location (same as script directory)
 OUTPUT_DIRECTORY = BASE_DIR
 
-API_KEY = "sk-3a5200989e7d4575a30f9ef910afd0eb"  # Replace with your actual API key
+API_KEY = "sk-3a"  # Replace with your actual API key
 BASE_URL = "https://api.deepseek.com"
 MODEL_NAME = "deepseek-chat"
 
