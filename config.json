@@ -1,0 +1,8 @@
+{
+  "windows_source_path": "/mnt/e/Documents/data_unextracted",
+  "archive_destination": "/mnt/e/Documents/data_extracted",
+  "auto_cleanup": true,
+  "auto_increment": true,
+  "delete_existing_before_import": true,
+  "cleanup_after_archive": true
+}
