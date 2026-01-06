@@ -1,15 +1,13 @@
 import os
 import json
 import shutil
-import pdfplumber
 import pandas as pd
 from openai import OpenAI
-import instructor
 from datetime import datetime
-from models import SpecimenData, ExtractionResult
-from validation import validate_dataframe, get_validation_summary
-from styling import export_to_excel_with_styling, generate_validation_report, reorder_columns_for_export
-from processing import optimize_text_for_extraction
+from validation import validate_dataframe
+from styling import export_to_excel_with_styling, generate_validation_report
+from processing import process_pdf
+from config_manager import load_and_validate_config, ConfigError, check_poppler_installation
 
 # Configuration
 # Base directory (script location)
@@ -24,9 +22,6 @@ EXCLUDED_DIRECTORY = os.path.join(BASE_DIR, "Excluded")
 # Output Excel location (same as script directory)
 OUTPUT_DIRECTORY = BASE_DIR
 
-API_KEY = "sk-FPzkiisouMuQm2M1uhneoyigxS7qDBOel102gGZGocV4GfCx"  # Replace with your actual API key
-BASE_URL = "https://api.silra.cn/v1"
-MODEL_NAME = "deepseek-chat"
 
 # Column Mapping for Excel
 COL_MAPPING = {
@@ -50,26 +45,36 @@ COL_MAPPING = {
 # System Prompt
 SYSTEM_PROMPT = """
 # 0. Relevance & Validity Check (CRITICAL)
-在提取数据前，必须先判断文档是否符合要求。
+
+**CRITICAL STEP**: 在提取详细数据前，请综合文字和图像信息判断文档是否符合要求。
 **符合要求的标准**（必须全部满足）：
+
 1. **对象**: 必须是钢管混凝土 (CFST) 构件。
 2. **内容**: 必须包含 **试验数据 (Experimental Data/Test Results)**。
+   - *Visual Hint*: 寻找包含 "Test", "Experimental" 标题的表格，或展示试件破坏模态（压溃、鼓曲）的**试验照片**。
 3. **构件类型**: 必须是柱 (Columns/Stub columns)。
 
-**拒绝情况**：
-- 如果是纯有限元模拟 (FEA only) 且无试验验证 -> **拒绝**。
-- 如果是纯理论推导 (Analytical/Derivation only) -> **拒绝**。
-- 如果是梁 (Beams) 或 节点 (Joints) -> **拒绝**。
+**拒绝情况 (Rejection)**：
+
+- 纯有限元模拟 (FEA only) 且无试验验证 -> **拒绝**。
+- 纯理论推导 (Analytical only) -> **拒绝**。
+- 梁 (Beams) 或 节点 (Joints) -> **拒绝**。
 
 **如果不符合要求**：
-请直接输出一个空的 JSON 结构，并附带 status 标记：
+输出一个空的 JSON 结构，status 标记为 false：
 `{ "Group_A": [], "Group_B": [], "Group_C": [], "is_valid": false, "reason": "Not experimental CFST column paper" }`
 
 # Role 
-你是一个精通钢管混凝土（CFST）试验数据的结构工程专家助手。 
+你是一个精通钢管混凝土（CFST）试验数据的结构工程专家助手。
+你正在使用先进的计算机视觉能力分析学术论文的页面图像（Images of Paper Pages）。
 
 # Task 
-从输入的学术文献文本中提取CFST构件的试验数据，并根据截面形状将其分类整理为结构化的JSON数据。 
+分析输入的论文页面图像，提取CFST构件的试验数据。
+**Core Strategy (Visual Processing)**: 
+
+1. 扫描所有图片，定位包含几何尺寸和试验结果的表格 (Tables)。
+2. 以 **Specimen Label (试件编号)** 为唯一索引（Primary Key）。
+3. 如果数据分散在不同表格（例如尺寸在 Table 1，承载力在 Table 2），请根据 Specimen Label 将它们合并。
 
 # 1. Classification & Geometry Mapping Rules (Strict) 
 将构件分为三组，并严格执行几何参数映射： 
@@ -106,17 +111,21 @@ SYSTEM_PROMPT = """
     - `e1`, `e2`: Eccentricity (mm).e1为上端偏心，e2为下端偏心,如果未明确定义上下端偏心，则默认e1=e2=文中的偏心e(eccentricity). Axial = 0. 
     - `n_exp`: **Experimental** Ultimate Bearing Capacity ($N_{exp}$/Peak Load). Unit: kN. **Exclude** FEA/Calculated results.
 
-* **Source Evidence (NEW for Workflow 2.0)**:
-    - `source_evidence`: **必须为每个数值提供源文档中的确切文本证据**
-    - 例如：如果 `fc_value = 30.5`，source_evidence 应为 "混凝土抗压强度为 30.5 MPa"
-    - 证据应直接来自源文档文本，不要修改或解释
-    - 每个字段的证据应分开，用分号分隔
-
+* **Source Evidence (Visual Tracking)**:   
+- `source_evidence`: **必须提供数据来源的视觉定位**。    - 格式： "Page [X], Table [Y]" 或 "Page [X] text section"。    - 目的：方便人工回溯检查。
 * **Formatting**:
     - `fcy150`: Always leave as empty string `""`.
     - Remove units from numeric fields.
 
-# 3. Output Format (JSON Only) 
+# 3. OCR Correction (Visual Assistant)
+
+由于你是通过视觉识别图片中的文字，请注意以下OCR纠错，但不要改变原始数据的含义：
+
+- 区分数字 `1` 和字母 `l/I`。
+- 区分数字 `0` 和字母 `O`。
+- 注意小数点 `.` 的位置（结合土木工程常识，例如 fc 不可能是 305 MPa）。
+
+# 4. Output Format (JSON Only) 
 Output a JSON object with keys: "Group_A", "Group_B", "Group_C", "is_valid", "reason". 
 
 **JSON Schema:** 
@@ -147,49 +156,6 @@ Output a JSON object with keys: "Group_A", "Group_B", "Group_C", "is_valid", "re
 } 
 """
 
-def extract_text_from_pdf(pdf_path):
-    """提取PDF全文文本"""
-    print(f"Processing PDF: {os.path.basename(pdf_path)}...")
-    text = ""
-    try:
-        with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-    except Exception as e:
-        print(f"Error reading PDF {pdf_path}: {e}")
-    return text
-
-def extract_data_with_ai(client, text):
-    """调用DeepSeek API提取数据（使用instructor结构化输出）"""
-    if not text.strip():
-        print("Warning: Extracted text is empty.")
-        return None
-
-    try:
-        # Optimize text for extraction using intelligent segmentation
-        optimized_text = optimize_text_for_extraction(text)
-        print(f"  - Text optimized: {len(text)} -> {len(optimized_text)} characters")
-
-        # Use instructor to get structured output
-        result = client.chat.completions.create(
-            model=MODEL_NAME,
-            response_model=ExtractionResult,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Extract data from this text:\n" + optimized_text}
-            ],
-            temperature=0.1,
-            max_tokens=8192
-        )
-
-        # Convert Pydantic model to dict for backward compatibility
-        return result.model_dump()
-    except Exception as e:
-        print(f"Error calling API: {e}")
-        return None
-
 def move_failed_file(file_path):
     """将失败的文件移动到 NotInput 目录"""
     if not os.path.exists(NOT_INPUT_DIRECTORY):
@@ -210,47 +176,33 @@ def move_excluded_file(file_path):
     if not os.path.exists(EXCLUDED_DIRECTORY):
         os.makedirs(EXCLUDED_DIRECTORY)
         print(f"Created directory: {EXCLUDED_DIRECTORY}")
-    
+
     filename = os.path.basename(file_path)
     destination = os.path.join(EXCLUDED_DIRECTORY, filename)
-    
+
     try:
         shutil.move(file_path, destination)
         print(f"  -> Moved excluded file to: {destination}")
     except Exception as e:
         print(f"  -> Error moving file {filename}: {e}")
 
-def load_config():
-    """Load configuration from config.json"""
-    config_path = os.path.join(BASE_DIR, "config.json")
-    default_config = {
-        "windows_source_path": "/mnt/c/Users/username/Documents/PDF_Source",
-        "archive_destination": "/mnt/e/Documents/data_extracted",
-        "auto_cleanup": True,
-        "auto_increment": True,
-        "delete_existing_before_import": True,
-        "cleanup_after_archive": True
-    }
+def move_to_manual_review(file_path, config):
+    """将提取失败的文件移动到 Manual_Review 目录"""
+    paths = config.get("paths", {})
+    manual_review_path = paths.get("manual_review_path", "./Manual_Review")
+
+    if not os.path.exists(manual_review_path):
+        os.makedirs(manual_review_path, exist_ok=True)
+        print(f"  创建目录: {manual_review_path}")
+
+    filename = os.path.basename(file_path)
+    destination = os.path.join(manual_review_path, filename)
 
     try:
-        if os.path.exists(config_path):
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                # Merge with defaults to ensure all keys exist
-                for key, value in default_config.items():
-                    if key not in config:
-                        config[key] = value
-                print(f"Configuration loaded from {config_path}")
-                return config
-        else:
-            print(f"Configuration file not found at {config_path}, using defaults")
-            # Create default config file
-            with open(config_path, 'w', encoding='utf-8') as f:
-                json.dump(default_config, f, indent=2, ensure_ascii=False)
-            return default_config
+        shutil.move(file_path, destination)
+        print(f"  -> Moved to Manual_Review: {destination}")
     except Exception as e:
-        print(f"Error loading configuration: {e}, using defaults")
-        return default_config
+        print(f"  -> Error moving file {filename}: {e}")
 
 def load_state():
     """Load state from state.json"""
@@ -297,7 +249,7 @@ def import_pdfs_from_windows(config):
     print("\n=== PDF Import Automation ===")
 
     # Check if source path exists
-    source_path = config.get("windows_source_path", "")
+    source_path = config.get("paths", {}).get("windows_source_path", "")
     if not source_path or not os.path.exists(source_path):
         print(f"Error: Source path does not exist: {source_path}")
         return False
@@ -320,7 +272,7 @@ def import_pdfs_from_windows(config):
     copied_count = 0
     error_count = 0
 
-    for root, dirs, files in os.walk(source_path):
+    for root, _, files in os.walk(source_path):
         for file in files:
             if file.lower().endswith('.pdf'):
                 source_file = os.path.join(root, file)
@@ -356,7 +308,7 @@ def archive_results(config, state):
     print("\n=== Batch Processing Archiving ===")
 
     # Check if archive destination exists
-    archive_dest = config.get("archive_destination", "")
+    archive_dest = config.get("paths", {}).get("archive_destination", "")
     if not archive_dest or not os.path.exists(archive_dest):
         print(f"Error: Archive destination does not exist: {archive_dest}")
         return False
@@ -437,8 +389,24 @@ def archive_results(config, state):
     return True
 
 def main():
+    # Check dependencies first
+    poppler_ok, poppler_msg = check_poppler_installation()
+    if not poppler_ok:
+        print(poppler_msg)
+        return
+
     # Load config and state
-    config = load_config()
+    try:
+        config_path = os.path.join(BASE_DIR, "config.json")
+        config = load_and_validate_config(config_path)
+    except ConfigError as e:
+        print(f"配置错误: {e}")
+        print("请检查 config.json 文件并修复上述问题")
+        return
+    except Exception as e:
+        print(f"加载配置时出错: {e}")
+        return
+
     state = load_state()
 
     # Import PDFs from Windows if configured
@@ -452,8 +420,22 @@ def main():
             print("PDF import failed or no PDFs found. Exiting workflow.")
             return
 
-    # Initialize OpenAI client for DeepSeek with instructor patch
-    client = instructor.patch(OpenAI(api_key=API_KEY, base_url=BASE_URL))
+    # Initialize OpenAI client with config settings
+    try:
+        api_settings = config.get("api_settings", {})
+        api_key = api_settings.get("api_key")
+        base_url = api_settings.get("base_url")
+        model_name = api_settings.get("model_name")
+
+        # Initialize OpenAI client without instructor patching for now
+        # We'll use standard OpenAI client for vision API
+        client = OpenAI(api_key=api_key, base_url=base_url)
+
+        print(f"OpenAI client initialized with model: {model_name}")
+
+    except Exception as e:
+        print(f"Failed to initialize OpenAI client: {e}")
+        return
 
     # Storage for processed data
     all_data = {
@@ -478,42 +460,52 @@ def main():
 
     for filename in pdf_files:
         file_path = os.path.join(TARGET_DIRECTORY, filename)
-        
-        # 1. Read PDF
-        text = extract_text_from_pdf(file_path)
-        
-        if not text.strip():
-             print(f"  - Extraction failed: Empty text for {filename}")
-             move_failed_file(file_path)
-             continue
 
-        # 2. AI Extraction
-        print(f"  - Calling AI extraction for {filename}...")
-        json_data = extract_data_with_ai(client, text)
-        
-        if json_data:
-            # Check validity first
-            is_valid = json_data.get("is_valid", True) # Default to True if not present, but prompt asks for it
-            
-            if not is_valid:
-                reason = json_data.get("reason", "No reason provided")
-                print(f"  - File excluded: {filename}. Reason: {reason}")
-                move_excluded_file(file_path)
-                continue
-            
-            # 3. Post-processing & Ref.No Injection
-            success = False
-            for group in ["Group_A", "Group_B", "Group_C"]:
-                if group in json_data and isinstance(json_data[group], list):
-                    for item in json_data[group]:
-                        item["ref_no"] = filename  # Force assign filename
-                        all_data[group].append(item)
-                    if json_data[group]: # If we found any items in any group
-                         success = True
-            
-            print(f"  - Successfully processed {filename}")
-        else:
-            print(f"  - Failed to extract data for {filename} (API Error or Invalid JSON)")
+        try:
+            # Use vision-based PDF processing
+            json_data = process_pdf(file_path, client, config, SYSTEM_PROMPT)
+
+            if json_data:
+                # Check validity first
+                is_valid = json_data.get("is_valid", True)
+
+                if not is_valid:
+                    reason = json_data.get("reason", "No reason provided")
+                    print(f"  - ⚠️  文件被排除: {filename}. 原因: {reason}")
+                    move_excluded_file(file_path)
+                    continue
+
+                # Zero-data detection and handling
+                group_a = json_data.get("Group_A", [])
+                group_b = json_data.get("Group_B", [])
+                group_c = json_data.get("Group_C", [])
+
+                if not group_a and not group_b and not group_c:
+                    print(f"  - ⚠️  警告: {filename} 未提取到数据，可能是跨页或非常规格式。")
+                    print(f"      将文件移动到 Manual_Review 文件夹...")
+                    move_to_manual_review(file_path, config)
+                    continue
+
+                # Post-processing & Ref.No Injection
+                success = False
+                for group in ["Group_A", "Group_B", "Group_C"]:
+                    if group in json_data and isinstance(json_data[group], list):
+                        for item in json_data[group]:
+                            item["ref_no"] = filename  # Force assign filename
+                            all_data[group].append(item)
+                        if json_data[group]: # If we found any items in any group
+                             success = True
+
+                if success:
+                    print(f"  - ✅ 成功处理 {filename}")
+                else:
+                    print(f"  - ⚠️  警告: {filename} 数据为空")
+                    move_to_manual_review(file_path, config)
+            else:
+                print(f"  - ❌ 提取数据失败: {filename}")
+
+        except Exception as e:
+            print(f"  - ❌ 处理失败: {filename} - {str(e)}")
             move_failed_file(file_path)
 
     # 4. Apply physical validation and prepare for export

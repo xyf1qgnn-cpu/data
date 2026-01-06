@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-processing-architecture-upgrade/requirements.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T13:47:54.398Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767707274381_vh5nwbm4y",
+      "approvalTitle": "PDF Processing Architecture Upgrade Requirements"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T13:52:31.335Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767707274381_vh5nwbm4y",
+      "approvalTitle": "PDF Processing Architecture Upgrade Requirements"
+    }
+  ]
+}

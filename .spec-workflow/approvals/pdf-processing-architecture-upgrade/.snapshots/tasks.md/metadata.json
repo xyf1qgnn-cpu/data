@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-processing-architecture-upgrade/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T13:58:27.606Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767707907596_6v1n82wyk",
+      "approvalTitle": "PDF Processing Architecture Upgrade Tasks"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T14:00:47.100Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767707907596_6v1n82wyk",
+      "approvalTitle": "PDF Processing Architecture Upgrade Tasks"
+    }
+  ]
+}

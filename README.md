@@ -1,138 +1,78 @@
-# CFST Data Extractor
+# CFST Data Extractor - AI-Powered Academic Literature Processor
 
-这是一个基于 Python 的自动化工具，旨在从学术文献（PDF格式）中提取钢管混凝土（CFST）构件的试验数据。利用 DeepSeek 大模型（OpenAI 兼容接口）进行智能文本分析和数据结构化，并将结果保存为 Excel 文件。
+An intelligent Python application that automatically extracts experimental test data from Concrete-Filled Steel Tube (CFST) research papers using Large Language Models (LLM). The system processes PDF documents, validates extracted data using physics-based formulas, and generates professional Excel reports with data categorization.
 
-## 🚀 版本演进概述
+## 🌟 Key Features
 
-### Workflow 1.0 → 2.0 → 3.0 → 4.0（PDF自动化工作流）
+### 🤖 AI-Powered Data Extraction
+- **Intelligent PDF Parsing**: Automatically extracts structured test data from academic PDFs
+- **LLM Integration**: Uses DeepSeek AI model via OpenAI-compatible API for intelligent text analysis
+- **Structured Output**: Employs Pydantic models for consistent data extraction
 
-**Workflow 4.0（最新）**：PDF自动化工作流 - 完全自动化文件管理
+### 📊 Advanced Data Processing
+- **Multi-Shape Classification**: Categorizes specimens into Group A (Rectangular/Square), Group B (Circular), and Group C (Round-ended/Elliptical)
+- **Physics-Based Validation**: Implements theoretical bearing capacity formulas to validate extracted data
+- **Smart Text Processing**: Optimizes text segmentation to prioritize data-rich sections
 
-### ✅ Workflow 4.0 新增功能（PDF自动化工作流）
+### 📈 Professional Output Generation
+- **Excel Reports with Styling**: Generates formatted Excel files with multiple sheets and professional styling
+- **Validation Reports**: Creates separate validation reports with pass/fail indicators
+- **Column Reordering**: Automatically reorders columns for optimal presentation
 
-1. **自动化PDF导入**：从Windows文件夹自动导入PDF到WSL2 `files/`目录
-2. **自动化归档**：处理结果自动归档到Windows目标文件夹
-3. **批次号跟踪**：持久化批次号管理，自动递增
-4. **配置文件管理**：JSON配置文件支持自定义路径和行为
-5. **状态持久化**：`state.json`文件跟踪批次历史
+### 🔄 Automation Workflow 4.0
+- **Automated File Management**: Auto-imports PDFs from Windows folders to WSL2
+- **Batch Processing**: Handles multiple PDF files in a single run
+- **Auto-Archiving**: Automatically archives processed results to designated folders
+- **Persistent State Tracking**: Maintains batch history and auto-increments batch numbers
+- **Error Handling**: Intelligently moves failed/invalid files to appropriate directories
 
-### ✅ Workflow 3.0 功能（GUI应用程序）
+## 🏗️ Architecture Overview
 
-1. **图形用户界面**：基于 PySide6 的现代化 Windows 应用程序
-2. **批量文件处理**：支持目录选择和批量 PDF 处理
-3. **实时进度跟踪**：进度条和详细日志显示
-4. **双输出区域**：分离的日志和错误信息显示
-5. **安全的 API 密钥管理**：加密存储和 Windows 凭据管理器集成
-6. **设置持久化**：记住窗口大小、位置和最后使用的目录
-7. **自动重试机制**：API 调用失败时自动重试（3次）
-
-### ✅ Workflow 2.0 功能（命令行增强版）
-
-1. **结构化数据提取**：使用 Instructor + Pydantic 进行结构化输出
-2. **物理公式验证**（"物理安检门"）：实现理论承载力公式验证
-3. **增强的 Excel 输出**：带样式的专业 Excel 报表
-4. **智能文本处理**：优化文本分段，优先提取数据丰富部分
-5. **集成工作流**：从 PDF 到样式化 Excel 的单一执行流程
-
-### ✅ 技术实现
-
-- **GUI 框架**：PySide6 (Qt for Python)
-- **打包工具**：PyInstaller 生成单文件 .exe 可执行文件
-- **线程处理**：QThread 实现后台处理，保持 UI 响应
-- **安全存储**：keyring + cryptography 库实现 API 密钥加密存储
-- **依赖管理**：包含所有必要依赖的独立可执行文件
-
-### ✅ 系统要求
-
-- **操作系统**：Windows 10/11 (64-bit)
-- **无需 Python 安装**：独立的 .exe 可执行文件
-- **内存要求**：< 500MB 用于典型批处理
-- **网络连接**：需要互联网连接进行 API 调用
-
-## 功能特性
-
-- **自动批量处理**：扫描 `files` 目录下的所有 PDF 文件。
-- **智能数据提取**：使用 AI 识别并提取关键试验参数（如尺寸、材料属性、承载力等）。
-- **物理公式验证**：自动计算理论承载力并验证数据合理性。
-- **分类整理**：根据构件截面形状自动分类为 Group A (矩形/方形)、Group B (圆形)、Group C (圆端形)。
-- **文件管理**：自动将处理失败或不符合要求的文件移动到相应目录，保持工作区整洁。
-- **格式化输出**：生成包含多个 Sheet 的 Excel 报表，带样式和验证标记。
-
-## 目录结构
-
-### 命令行版本（Workflow 4.0 - PDF自动化工作流）
 ```
-data/
-├── main.py                # 主程序脚本（已更新为 Workflow 4.0）
-├── models.py              # Pydantic 模型定义
-├── validation.py          # 物理验证公式
-├── styling.py             # Excel 样式和导出功能
-├── processing.py          # 智能文本分段处理
-├── config.json            # [新增] 自动化工作流配置文件
-├── state.json             # [新增] 批次状态跟踪文件
-├── files/                 # [输入] 存放待处理 PDF 文件的目录
-├── NotInput/              # [输出] 存放处理失败或无法读取的文件
-├── Excluded/              # [输出] 存放被 AI 判定为无关或无效的文件
-├── CFST_Extracted_Data.xlsx  # [输出] 最终生成的 Excel 数据表
-├── AUTOMATION_README.md   # [新增] PDF自动化工作流详细文档
-└── README.md              # 说明文档
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│   PDF Files     │───▶│  AI Extraction   │───▶│   Validation    │
+│  (files/ dir)   │    │  (LLM Pipeline)  │    │  (Physics Form.)│
+└─────────────────┘    └──────────────────┘    └─────────────────┘
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
+│  Auto-Import    │    │  Data Models     │    │  Excel Output   │
+│ (Windows Path)  │    │  (Pydantic)      │    │ (Styled Sheets) │
+└─────────────────┘    └──────────────────┘    └─────────────────┘
 ```
 
-### GUI 应用程序版本（Workflow 3.0）
+## 📁 Project Structure
+
 ```
-CFST_Data_Extractor/
-├── main_gui.py            # GUI 主程序入口
-├── core_processor.py      # 核心处理逻辑（适配 GUI）
-├── secure_storage.py      # API 密钥安全管理
-├── resources/
-│   ├── config.ini         # 应用程序配置
-│   └── styles.qss         # 界面样式表
-├── spec/
-│   └── cfst_extractor.spec  # PyInstaller 打包配置
-├── requirements.txt       # Python 依赖包列表
-└── build/                 # 构建输出目录（包含 .exe 文件）
-```
-
-## 安装指南
-
-### 1. 环境要求
-
-#### 命令行版本（Workflow 4.0 - PDF自动化工作流）
-- Python 3.8 或更高版本
-- WSL2 环境（Windows Subsystem for Linux）
-- Windows 文件夹通过 `/mnt/c/`, `/mnt/e/` 等路径挂载
-
-#### GUI 应用程序版本（Workflow 3.0）
-- Windows 10/11 (64-bit) 操作系统
-- 无需 Python 安装（独立 .exe 可执行文件）
-
-### 2. 安装依赖
-
-#### 命令行版本安装
-请在终端中运行以下命令安装所需的 Python 库：
-
-```bash
-# Workflow 2.0 新增依赖
-pip install instructor>=1.0.0 pydantic>=2.0.0
-
-# 原有依赖
-pip install pdfplumber pandas openpyxl openai numpy
+CFST-Data-Extractor/
+├── main.py                 # Main application entry point (Workflow 4.0)
+├── models.py              # Pydantic data models for structured extraction
+├── validation.py          # Physics-based validation formulas
+├── styling.py             # Excel styling and export functionality
+├── processing.py          # Intelligent text preprocessing
+├── config.json            # Automation workflow configuration
+├── state.json             # Batch state tracking and history
+├── files/                 # Input directory for PDF files
+├── NotInput/              # Directory for failed/unreadable files
+├── Excluded/              # Directory for invalid/irrelevant files
+├── CFST_Extracted_Data.xlsx    # Generated Excel output
+└── README.md              # This documentation
 ```
 
-#### GUI 应用程序安装
-1. 下载 `CFST_Data_Extractor.exe` 可执行文件
-2. 双击运行即可，无需安装其他软件
-3. 首次运行时需要输入 DeepSeek API 密钥
+## 🔧 Configuration
 
-## 使用说明
+### API Configuration
+The system uses DeepSeek AI model via OpenAI-compatible API:
+```python
+API_KEY = "your-api-key-here"  # Replace with your actual API key
+BASE_URL = "https://api.silra.cn/v1"
+MODEL_NAME = "deepseek-chat"
+```
 
-### 命令行版本使用（Workflow 4.0 - PDF自动化工作流）
-
-#### 1. 配置自动化工作流
-编辑 `config.json` 文件，设置正确的Windows路径：
+### Automation Configuration (config.json)
 ```json
 {
-  "windows_source_path": "/mnt/c/Users/username/Documents/PDF_Source",
+  "windows_source_path": "/mnt/e/Documents/data_unextracted",
   "archive_destination": "/mnt/e/Documents/data_extracted",
   "auto_cleanup": true,
   "auto_increment": true,
@@ -141,295 +81,153 @@ pip install pdfplumber pandas openpyxl openai numpy
 }
 ```
 
-**注意**：使用WSL2挂载路径格式（`/mnt/c/`, `/mnt/e/`等）
+## 🚀 Installation & Setup
 
-#### 2. 准备目录
-确保以下Windows文件夹存在且可访问：
-- 源文件夹（包含要处理的PDF文件）
-- 归档目标文件夹（用于保存处理结果）
+### Prerequisites
+- Python 3.8 or higher
+- WSL2 (Windows Subsystem for Linux) for Windows users
+- Internet connection for API calls
 
-#### 3. 配置 API Key
-打开 `main.py`，找到以下代码行，将 `API_KEY` 替换为您自己的 DeepSeek 或兼容 OpenAI 格式的 API Key：
+### Installation Steps
 
-```python
-API_KEY = "your-api-key-here"
-```
+1. **Clone the Repository**
+   ```bash
+   git clone <repository-url>
+   cd CFST-Data-Extractor
+   ```
 
-#### 4. 运行自动化工作流
-在终端中切换到项目目录，并运行脚本：
+2. **Install Dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
+   Key dependencies:
+   - `openai` - For LLM API integration
+   - `instructor` - For structured LLM outputs
+   - `pydantic` - For data validation and serialization
+   - `pdfplumber` - For PDF text extraction
+   - `pandas` - For data manipulation
+   - `openpyxl` - For Excel file generation
+
+3. **Configure API Access**
+   - Obtain an API key from your LLM provider
+   - Update the `API_KEY` variable in `main.py`
+   - Ensure the `BASE_URL` points to your API endpoint
+
+4. **Set Up File Paths**
+   - Configure source and destination paths in `config.json`
+   - Ensure the Windows paths are correctly mapped in WSL2
+
+### Running the Application
+
+#### Command Line Mode (Workflow 4.0)
 ```bash
 python main.py
 ```
 
-#### 5. 自动化工作流步骤
-1. **PDF导入**：自动从Windows源文件夹导入PDF到 `files/` 目录
-2. **数据提取**：处理PDF文件，提取CFST试验数据
-3. **归档结果**：自动归档处理结果到Windows目标文件夹
-4. **批次跟踪**：自动递增批次号，更新状态文件
+The application will:
+1. Automatically import PDFs from the configured Windows folder
+2. Process each PDF through the AI extraction pipeline
+3. Validate extracted data using physics formulas
+4. Generate Excel reports with styling
+5. Archive results and update state tracking
 
-#### 6. 查看结果
-- **成功提取**：数据将保存在 `CFST_Extracted_Data.xlsx` 文件中。
-- **归档结果**：完整结果归档到 `Dataset (X) YYYY-MM-DD` 文件夹中。
-- **无效文件**：不符合 CFST 试验数据要求的论文会被移动到 `Excluded` 文件夹。
-- **处理失败**：无法读取或 API 调用失败的文件会被移动到 `NotInput` 文件夹。
+## 📊 Data Model Specifications
 
-### 传统命令行版本使用（Workflow 2.0）
+### SpecimenData Model
+Each extracted specimen contains 16 standardized fields:
 
-如果您想使用传统的手动文件管理方式：
+| Field | Description | Unit |
+|-------|-------------|------|
+| ref_no | Reference number (filename) | - |
+| fc_value | Concrete compressive strength | MPa |
+| fc_type | Concrete type specification | - |
+| specimen_label | Unique specimen identifier | - |
+| fy | Steel yield strength | MPa |
+| r_ratio | Recycled aggregate ratio | % |
+| b | Width/Diameter/Major axis | mm |
+| h | Depth/Minor axis | mm |
+| t | Steel tube thickness | mm |
+| r0 | External corner radius | mm |
+| L | Specimen length | mm |
+| e1 | Eccentricity 1 | mm |
+| e2 | Eccentricity 2 | mm |
+| n_exp | Experimental bearing capacity | kN |
+| source_evidence | Extracted text evidence | - |
 
-#### 1. 准备文件
-在项目根目录下创建一个名为 `files` 的文件夹（如果不存在），并将需要提取数据的 PDF 论文放入其中。
+### Validation Rules
+- **Group Classification**: Based on cross-sectional shape
+- **Physics Validation**: Theoretical bearing capacity calculation
+- **Data Consistency**: Dimensional and material property checks
 
-#### 2. 配置 API Key
-打开 `main.py`，找到以下代码行，将 `API_KEY` 替换为您自己的 DeepSeek 或兼容 OpenAI 格式的 API Key：
+## 🎯 Use Cases
 
-```python
-API_KEY = "your-api-key-here"
-```
+1. **Academic Research**: Extract test data from multiple papers for meta-analysis
+2. **Database Building**: Create comprehensive CFST test databases
+3. **Quality Control**: Validate published experimental data
+4. **Literature Review**: Systematic data extraction from research papers
 
-#### 3. 运行程序
-在终端中切换到项目目录，并运行脚本：
+## 🔍 Troubleshooting
 
-```bash
-python main.py
-```
+### Common Issues
 
-#### 4. 查看结果
-- **成功提取**：数据将保存在 `CFST_Extracted_Data.xlsx` 文件中。
-- **无效文件**：不符合 CFST 试验数据要求的论文会被移动到 `Excluded` 文件夹。
-- **处理失败**：无法读取或 API 调用失败的文件会被移动到 `NotInput` 文件夹。
+1. **API Connection Failed**
+   - Check internet connectivity
+   - Verify API key is valid and not expired
+   - Ensure BASE_URL is correct
 
-### GUI 应用程序使用
+2. **PDF Processing Errors**
+   - Ensure PDFs are text-based (not scanned images)
+   - Check PDF permissions and encryption
+   - Verify files are not corrupted
 
-#### 1. 启动应用程序
-双击 `CFST_Data_Extractor.exe` 文件启动应用程序。
+3. **Excel Generation Issues**
+   - Ensure write permissions in output directory
+   - Check if Excel file is already open
+   - Verify pandas and openpyxl versions are compatible
 
-#### 2. 配置 API 密钥
-- 首次运行时，在 API 密钥输入框中输入您的 DeepSeek API 密钥
-- 点击"保存密钥"按钮，密钥将被安全加密存储
-- 后续启动时会自动加载已保存的密钥
+4. **Automation Workflow Problems**
+   - Verify Windows path mappings in WSL2
+   - Check directory permissions
+   - Ensure state.json is writable
 
-#### 3. 选择处理目录
-- 点击"选择目录"按钮，选择包含 PDF 文件的文件夹
-- 支持任意目录位置，不限于 `files` 文件夹
+### Performance Optimization
 
-#### 4. 开始处理
-- 点击"开始处理"按钮启动批量处理
-- 实时查看进度条和详细日志
-- 在错误区域查看处理失败的文件信息
+- **Batch Size**: Process 10-20 PDFs per batch for optimal performance
+- **API Rate Limiting**: Implement delays between API calls if needed
+- **Memory Management**: Monitor memory usage for large PDFs
 
-#### 5. 查看结果
-- 处理完成后，在选择的目录中查看生成的 Excel 文件
-- 处理失败的文件会自动移动到 `NotInput` 子目录
-- 被排除的文件会自动移动到 `Excluded` 子目录
+## 🔒 Security Considerations
 
-## 🔧 技术实现详情
+- API keys are stored in plain text in the current version
+- Consider implementing secure key storage for production use
+- Ensure sensitive data in PDFs is handled appropriately
 
-### 结构化数据提取
-- 使用 `instructor` 库从 DeepSeek API 获取结构化输出
-- 定义 `SpecimenData` Pydantic 模型，包含 `source_evidence` 字段
-- 保持与现有 JSON 结构的向后兼容性
+## 🔄 Version History
 
-### GUI 应用程序架构
-- **主界面**：基于 PySide6 的现代化 Windows 应用程序界面
-- **线程处理**：使用 QThread 实现后台处理，保持 UI 响应性
-- **信号/槽机制**：实时更新进度、日志和错误信息
-- **配置管理**：INI 配置文件存储应用程序设置
-- **安全存储**：使用 keyring 和 cryptography 库加密存储 API 密钥
-- **打包配置**：PyInstaller spec 文件包含所有必要依赖
+- **Workflow 4.0 (Current)**: Full automation with file management
+- **Workflow 3.0**: GUI application with Windows executable
+- **Workflow 2.0**: Physics validation and Excel styling
+- **Workflow 1.0**: Basic PDF extraction
 
-### 物理公式验证（"物理安检门"）
-- **理论承载力公式**：$N_t = A_s * f_y + A_c * f_c$
-- **混凝土面积公式**：$A_c = (b - 2t)(h - 2t) - (4 - \pi)r_1^2$
-- **钢材面积公式**：$A_s = 2t(b + h) - 4t^2 - (4 - \pi)(r_0^2 - r_1^2)$
-- **验证系数**：$\xi = N_{exp} / N_t$
-- **内半径公式**：$r_1 = \frac{h - 2t}{h} r_0$
+## 🤝 Contributing
 
-### 验证规则
-- **绿色区域** (0.8 < ξ < 2.5)：无需人工检查
-- **红色区域** (ξ > 10 或 ξ < 0.1)：单位错误，需要批量修正
-- **黄色区域**：需要人工审核
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-### 增强的 Excel 输出
-- 保持原有的 15 列结构（`COL_MAPPING`）
-- 新增列：`source_evidence`, `N_theory`, `xi`, `needs_manual_check`
-- 将 `source_evidence` 列放置在 `n_exp` 旁边便于参考
-- 对 `needs_manual_check == True` 的行应用浅红色背景
-- 使用 pandas Styler 进行 Excel 样式设置
-- 保持工作表名称：Group_A, Group_B, Group_C
+## 📄 License
 
-### PDF自动化工作流特性（Workflow 4.0）
-- **自动化PDF导入**：从Windows文件夹自动导入PDF到WSL2 `files/`目录
-- **自动化归档**：处理结果自动归档到Windows目标文件夹，支持批次号跟踪
-- **配置文件管理**：JSON配置文件支持自定义路径和行为控制
-- **状态持久化**：`state.json`文件跟踪批次历史，支持错误恢复
-- **智能错误处理**：路径验证、权限检查、重复文件处理
-- **灵活的配置**：支持启用/禁用各个自动化步骤
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-### GUI 应用程序特性
-- **批量处理**：支持任意目录下的 PDF 文件批量处理
-- **实时进度**：进度条显示当前处理进度和剩余时间估算
-- **双输出区域**：分离的日志和错误信息显示，便于问题排查
-- **API 密钥管理**：安全的加密存储，支持 Windows 凭据管理器
-- **设置持久化**：自动保存窗口大小、位置和最后使用的目录
-- **错误处理**：自动重试机制，文件级错误隔离
-- **取消支持**：支持中途取消处理操作
+## 🙏 Acknowledgments
 
-### 智能文本处理
-- 实现智能分段，保留文档开头（摘要、引言、方法）
-- 提取表格和图形（可能包含试件数据）
-- 包含附录（通常包含详细的测试结果）
-- 排除参考文献部分
-- 用优化的文本选择替代 50,000 字符截断
+- DeepSeek AI for providing the LLM capabilities
+- The CFST research community for the academic literature
+- Open-source libraries that made this project possible
 
-## 📊 验证指标
+---
 
-系统计算并报告：
-- **提取的总试件数**
-- **需要人工检查的试件数**（带百分比）
-- **区域分布**：绿色/黄色/红色
-- **实现的人工审核减少量** vs 目标（70%）
-
-## 🧪 测试验证
-
-所有模块均已测试：
-- ✅ Pydantic 模型和 instructor 集成
-- ✅ 物理验证公式（圆形、矩形、圆端形截面）
-- ✅ 智能文本分段和优化
-- ✅ Excel 样式和列排序
-- ✅ 完整集成测试
-
-### GUI 应用程序测试
-- ✅ GUI 界面布局和控件功能
-- ✅ 线程处理和信号/槽机制
-- ✅ API 密钥加密存储和加载
-- ✅ 设置持久化和恢复
-- ✅ 批量处理进度跟踪
-- ✅ 错误处理和自动重试
-- ✅ PyInstaller 打包和依赖包含
-
-### PDF自动化工作流测试（Workflow 4.0）
-- ✅ 配置文件加载和默认值处理
-- ✅ 状态文件管理和错误恢复
-- ✅ PDF导入功能（路径验证、文件复制、错误处理）
-- ✅ 归档功能（文件夹创建、文件复制、批次号递增）
-- ✅ 自动化工作流集成测试
-
-## 🎯 达成的成功指标
-
-基于需求规格：
-1. **数据准确性**：物理验证通过识别单位错误减少人工审核
-2. **处理时间**：智能文本优化保持性能
-3. **错误检测**：验证系数正确识别 >90% 的单位错误
-4. **用户满意度**：清晰的突出显示和来源证据追踪
-5. **可维护性**：模块化代码结构，包含全面测试
-
-### GUI 应用程序成功指标
-1. **易用性**：非技术用户可通过 GUI 界面操作应用程序
-2. **性能**：UI 保持响应，处理速度与命令行版本相当
-3. **可靠性**：稳定的批量处理，支持中途取消
-4. **安全性**：API 密钥加密存储，无敏感信息泄露
-5. **兼容性**：Windows 10/11 64-bit 系统兼容性验证
-
-### PDF自动化工作流成功指标（Workflow 4.0）
-1. **自动化程度**：完全消除手动文件管理步骤
-2. **时间节省**：每批次节省5-10分钟手动操作时间
-3. **批次一致性**：自动批次号跟踪，确保归档组织一致性
-4. **错误减少**：自动化减少人为文件管理错误
-5. **配置灵活性**：支持自定义路径和行为控制
-
-## 🔄 备用选项
-
-1. **API 兼容性**：保持传统 JSON 解析结构作为备用
-2. **验证错误**：保守的阈值，具有手动覆盖能力
-3. **性能**：向量化操作确保处理时间增加 <50%
-
-## ⚠️ 已知限制
-
-1. **PDF 质量**：文本提取依赖于 PDF 质量和结构
-2. **API 限制**：仍受 DeepSeek API 令牌限制
-3. **验证准确性**：物理公式假设理想条件
-4. **文本分段**：可能无法完美处理所有学术论文格式
-
-### GUI 应用程序限制
-1. **平台限制**：仅支持 Windows 10/11 64-bit 系统
-2. **文件大小**：超大 PDF 文件可能导致内存使用增加
-3. **网络依赖**：需要稳定的互联网连接进行 API 调用
-4. **防病毒软件**：打包的 .exe 文件可能被误报为可疑文件
-
-### PDF自动化工作流限制（Workflow 4.0）
-1. **WSL2依赖**：需要WSL2环境，Windows文件夹通过挂载路径访问
-2. **路径配置**：需要正确配置Windows路径（使用`/mnt/c/`格式）
-3. **权限要求**：需要读写权限访问Windows文件夹
-4. **文件夹存在**：源文件夹和目标文件夹必须预先存在
-
-## 📞 支持
-
-对于问题或疑问：
-
-### 命令行版本
-1. 检查控制台输出中的验证报告
-2. 查看 Excel 文件中需要人工检查的突出显示行
-3. 检查来源证据列以追踪数据
-4. 检查 `NotInput/` 和 `Excluded/` 目录中的失败文件
-
-### GUI 应用程序版本
-1. 查看应用程序日志区域的处理详细信息
-2. 检查错误区域中的失败文件信息
-3. 验证 API 密钥是否正确保存和加载
-4. 检查处理目录中的 `NotInput/` 和 `Excluded/` 子目录
-
-### PDF自动化工作流版本（Workflow 4.0）
-1. 检查控制台输出中的自动化工作流日志
-2. 验证 `config.json` 文件中的路径配置是否正确
-3. 检查 `state.json` 文件中的批次状态
-4. 确保Windows文件夹存在且可通过WSL2挂载路径访问
-5. 查看归档文件夹中的处理结果
-
-## 📋 版本更新日志
-
-### Workflow 4.0 (2026-01-04) - PDF自动化工作流
-- **新增**：自动化PDF导入功能（Windows → WSL2）
-- **新增**：自动化归档功能（WSL2 → Windows）
-- **新增**：批次号跟踪和状态管理
-- **新增**：JSON配置文件支持（`config.json`）
-- **新增**：状态文件跟踪（`state.json`）
-- **改进**：完全自动化文件管理，消除手动步骤
-- **改进**：详细的错误处理和日志记录
-
-### Workflow 3.0 (2026-01-01) - GUI应用程序
-- **新增**：PySide6图形用户界面
-- **新增**：Windows独立可执行文件（.exe）
-- **新增**：安全的API密钥加密存储
-- **新增**：实时进度跟踪和双输出区域
-- **新增**：设置持久化和自动重试机制
-
-### Workflow 2.0 (2025-12-31) - 命令行增强版
-- **新增**：结构化数据提取（Instructor + Pydantic）
-- **新增**：物理公式验证（"物理安检门"）
-- **新增**：增强的Excel输出和样式
-- **新增**：智能文本分段处理
-- **新增**：来源证据追踪和验证标记
-
-### Workflow 1.0 (初始版本)
-- **基础功能**：PDF文本提取和AI数据提取
-- **基础功能**：Excel输出和文件分类
-- **基础功能**：基本的错误处理和文件管理
-
-## 贡献指南
-
-欢迎提交 Pull Request 或 Issue 来改进本项目！
-1. Fork 本仓库
-2. 创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交您的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 开启一个 Pull Request
-
-## 许可证
-
-本项目采用 MIT 许可证。
-
-## 联系方式
-
-如有问题或建议，请联系项目维护者或提交 GitHub Issue。
+**Note**: This tool is designed for academic research purposes. Always verify extracted data against original sources before use in critical applications.

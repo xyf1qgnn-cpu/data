@@ -1,6 +1,19 @@
 {
-  "windows_source_path": "/mnt/e/Documents/data_unextracted",
-  "archive_destination": "/mnt/e/Documents/data_extracted",
+  "api_settings": {
+    "api_key": "sk-6WUoYVAkFb9B62167fd5T3BlbKFJe8057E7983f840c382bf",
+    "base_url": "https://api.ohmygpt.com/v1",
+    "model_name": "vertex-gemini-3-flash-preview"
+  },
+  "processing_settings": {
+    "short_paper_threshold": 15,
+    "max_scan_limit": 10,
+    "image_dpi": 150
+  },
+  "paths": {
+    "windows_source_path": "/mnt/e/Documents/data_unextracted",
+    "archive_destination": "/mnt/e/Documents/data_extracted",
+    "manual_review_path": "./Manual_Review"
+  },
   "auto_cleanup": true,
   "auto_increment": true,
   "delete_existing_before_import": true,
