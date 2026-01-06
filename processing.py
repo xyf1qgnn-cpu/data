@@ -19,9 +19,344 @@ import re
 import os
 import base64
 import io
+import logging
+import json
 from typing import List, Tuple, Optional, Dict, Any
 from pdf2image import convert_from_path
 from PIL import Image
+import pdfplumber
+
+# Get logger instance
+logger = logging.getLogger('cfst_extractor')
+
+
+def parse_ai_response(response_content: str) -> Dict[str, Any]:
+    """
+    Parse AI response content as JSON with truncation detection.
+
+    This function handles:
+    1. Markdown code block removal
+    2. Truncated JSON detection
+    3. JSON parsing with error handling
+
+    Args:
+        response_content: Raw response content from AI model
+
+    Returns:
+        Parsed JSON dictionary
+
+    Raises:
+        json.JSONDecodeError: If JSON is malformed or truncated
+        Exception: For other parsing errors
+    """
+    import json
+
+    content = response_content.strip()
+
+    # Remove markdown code block markers
+    if content.startswith("```json"):
+        content = content[7:]
+    if content.startswith("```"):
+        content = content[3:]
+    if content.endswith("```"):
+        content = content[:-3]
+
+    content = content.strip()
+
+    # Check for truncated JSON
+    # 1. Check for unclosed braces
+    open_braces = content.count('{')
+    close_braces = content.count('}')
+    if open_braces != close_braces:
+        raise json.JSONDecodeError(
+            f"JSON appears to be truncated: {open_braces} opening braces but {close_braces} closing braces",
+            content,
+            len(content)
+        )
+
+    # 2. Check for unclosed strings
+    in_string = False
+    escaped = False
+    for i, char in enumerate(content):
+        if not in_string:
+            if char == '"':
+                in_string = True
+        else:
+            if escaped:
+                escaped = False
+            elif char == '\\':
+                escaped = True
+            elif char == '"':
+                in_string = False
+
+    if in_string and not content.endswith('"'):
+        raise json.JSONDecodeError(
+            "JSON appears to have truncated string",
+            content,
+            len(content)
+        )
+
+    try:
+        # Try to parse JSON
+        result = json.loads(content)
+        return result
+    except json.JSONDecodeError as e:
+        # Re-raise with more context
+        raise json.JSONDecodeError(
+            f"Invalid JSON format: {str(e)}",
+            e.doc,
+            e.pos
+        )
+
+
+def get_smart_pages_to_process(pdf_path: str, config: Dict[str, Any]) -> Tuple[List[int], str, List[Dict]]:
+    """
+    Main function: determine which pages to process using smart filtering.
+
+    This function implements the two-phase processing strategy:
+    Phase 1: Text scouting (extract text from all pages)
+    Phase 2: Intelligent page selection (score and filter pages)
+
+    Args:
+        pdf_path: Path to the PDF file
+        config: Configuration dictionary
+
+    Returns:
+        Tuple containing:
+        - List of page numbers to process (1-indexed)
+        - Strategy description string (for logging)
+        - Debug info list (containing page scores and selection reasons)
+    """
+    processing_settings = config.get("processing_settings", {})
+    page_filtering = processing_settings.get("page_filtering", {})
+
+    # Get configuration parameters
+    short_threshold = processing_settings.get("short_paper_threshold", 10)
+    max_selected = page_filtering.get("max_selected_pages", 8)
+    absolute_max = processing_settings.get("absolute_max_pages", 30)
+    mandatory_first = page_filtering.get("mandatory_include_first_page", True)
+
+    try:
+        # Phase 1: Extract text from all pages
+        page_texts = extract_page_texts(pdf_path)
+        total_pages = len(page_texts)
+
+        # Short paper: process all pages
+        if total_pages <= short_threshold:
+            pages_to_process = list(range(1, total_pages + 1))
+            strategy_desc = f"全量扫描 ({total_pages}页 ≤ {short_threshold}页阈值，短论文)"
+            debug_info = [{"page": i, "score": 0, "reason": "短论文全量扫描"} for i in pages_to_process]
+            return pages_to_process, strategy_desc, debug_info
+
+        # Long paper: apply smart filtering
+        # Phase 2: Score all pages
+        page_scores = []
+        for page_num, text in page_texts.items():
+            score = score_page_content(text, config)
+            page_scores.append({
+                "page": page_num,
+                "score": score,
+                "text_length": len(text)
+            })
+
+        # Sort by score (descending)
+        page_scores.sort(key=lambda x: x["score"], reverse=True)
+
+        # Select pages
+        selected_pages = []
+        debug_info = []
+
+        # Always include page 1 if configured
+        if mandatory_first and 1 not in selected_pages:
+            selected_pages.append(1)
+            debug_info.append({
+                "page": 1,
+                "score": next((p["score"] for p in page_scores if p["page"] == 1), 0),
+                "reason": "强制包含第1页（摘要）"
+            })
+
+        # Select top-scoring pages (excluding negative scores)
+        for page_info in page_scores:
+            page_num = page_info["page"]
+            score = page_info["score"]
+
+            # Skip if already selected
+            if page_num in selected_pages:
+                continue
+
+            # Skip pages with negative scores (likely references)
+            if score < 0:
+                continue
+
+            # Add to selection
+            selected_pages.append(page_num)
+            debug_info.append({
+                "page": page_num,
+                "score": score,
+                "reason": f"得分: {score}"
+            })
+
+            # Stop when we reach max_selected
+            if len(selected_pages) >= max_selected:
+                break
+
+        # Sort selected pages by page number (for logical order)
+        selected_pages.sort()
+
+        # Apply absolute max limit
+        if len(selected_pages) > absolute_max:
+            selected_pages = selected_pages[:absolute_max]
+            debug_info = debug_info[:absolute_max]
+            strategy_desc = f"智能筛选 (选择{len(selected_pages)}页/{total_pages}页，受{absolute_max}页绝对限制)"
+        else:
+            strategy_desc = f"智能筛选 (选择{len(selected_pages)}页/{total_pages}页)"
+
+        # Log detailed information (file only)
+        logger.debug(f"页面评分详情: {page_scores}")
+        logger.debug(f"选中页码: {selected_pages}")
+        logger.debug(f"选择原因: {debug_info}")
+
+        return selected_pages, strategy_desc, debug_info
+
+    except Exception as e:
+        # Fallback: use simple truncation if smart filtering fails
+        print(f"  ❌ 智能筛选失败: {str(e)}")
+        pages_to_process = list(range(1, min(get_page_count(pdf_path), max_selected) + 1))
+        strategy_desc = f"智能筛选失败，回退到简单截断 (前{len(pages_to_process)}页)"
+        debug_info = [{"page": i, "score": 0, "reason": "智能筛选失败，回退"} for i in pages_to_process]
+        return pages_to_process, strategy_desc, debug_info
+
+
+def score_page_content(text: str, config: Dict[str, Any]) -> int:
+    """
+    Score page content based on keyword matches and patterns.
+
+    Scoring rules:
+    - Table titles: +10 points
+    - Data keywords: +5 points
+    - References/citations: -5 points
+    - Normal text: +1 point per significant word
+
+    Args:
+        text: Page text content
+        config: Configuration dictionary with page_filtering settings
+
+    Returns:
+        Integer score for the page
+    """
+    if not text or not text.strip():
+        return 0
+
+    # Get filtering configuration
+    page_filtering = config.get("processing_settings", {}).get("page_filtering", {})
+    patterns = page_filtering.get("patterns", {})
+    weights = page_filtering.get("weights", {})
+
+    score = 0
+
+    # Compile regex patterns for performance
+    # Table patterns (high weight)
+    table_patterns = patterns.get("table_patterns", [
+        r'(?i)Table\s+\d+',
+        r'(?i)Tab\.\s*\d+',
+        r'(?i)TABLE\s+\d+'
+    ])
+
+    # Data keyword patterns (medium weight)
+    data_patterns = patterns.get("data_patterns", [
+        r'(?i)Specimen',
+        r'(?i)Experimental',
+        r'(?i)Test\s+results?',
+        r'\d+\.\d+\s*(mm|MPa|kN)',
+        r'(?i)[BD]\/t\s*[=:]?\s*\d+',
+        r'(?i)Load[-\s]displacement',
+        r'(?i)Axial\s+(load|force)',
+        r'(?i)Compressive\s+strength'
+    ])
+
+    # Reference patterns (negative weight)
+    reference_patterns = patterns.get("reference_patterns", [
+        r'(?i)^\s*References?\s*$',
+        r'(?i)^\s*Bibliography\s*$'
+    ])
+
+    # Simulation patterns (negative weight, lighter than references)
+    simulation_patterns = patterns.get("simulation_patterns", [
+        r'(?i)Finite\s+Element',
+        r'(?i)FE\s+model',
+        r'(?i)Mesh\s+generation',
+        r'(?i)Simulation\s+results',
+        r'(?i)Numerical\s+analysis',
+        r'(?i)Analytical\s+study'
+    ])
+
+    # Apply table patterns (high weight)
+    table_weight = weights.get("table_weight", 40)
+    for pattern in table_patterns:
+        matches = re.findall(pattern, text)
+        score += len(matches) * table_weight
+
+    # Apply data patterns (medium weight)
+    data_weight = weights.get("data_weight", 5)
+    for pattern in data_patterns:
+        matches = re.findall(pattern, text)
+        score += len(matches) * data_weight
+
+    # Apply reference patterns (negative weight)
+    reference_weight = weights.get("reference_weight", -20)
+    for pattern in reference_patterns:
+        matches = re.findall(pattern, text)
+        score += len(matches) * reference_weight
+
+    # Apply simulation patterns (lighter negative weight)
+    simulation_weight = weights.get("simulation_weight", -10)
+    for pattern in simulation_patterns:
+        matches = re.findall(pattern, text)
+        score += len(matches) * simulation_weight
+
+    # Add base score for non-empty content (+1 per 10 words, minimum 1)
+    base_weight = weights.get("base_weight", 1)
+    word_count = len(text.split())
+    if word_count > 0:
+        base_score = max(1, word_count // 10)
+        score += base_score * base_weight
+
+    return score
+
+
+def extract_page_texts(pdf_path: str) -> Dict[int, str]:
+    """
+    Extract text from all pages of a PDF using pdfplumber.
+
+    This function performs phase-one text scouting for smart page filtering.
+    It extracts text from all pages without converting to images or calling APIs.
+
+    Args:
+        pdf_path: Path to the PDF file
+
+    Returns:
+        Dictionary mapping page numbers (1-indexed) to extracted text
+
+    Raises:
+        FileNotFoundError: If PDF file doesn't exist
+        Exception: If text extraction fails
+    """
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+
+    try:
+        page_texts = {}
+        with pdfplumber.open(pdf_path) as pdf:
+            # Iterate through pages (1-indexed)
+            for page_num, page in enumerate(pdf.pages, 1):
+                # Extract text from the page
+                text = page.extract_text() or ""
+                page_texts[page_num] = text
+
+        return page_texts
+
+    except Exception as e:
+        raise Exception(f"Text extraction failed: {str(e)}")
 
 
 def segment_pdf_text_intelligently(text: str, max_length: int = 50000) -> List[str]:
@@ -382,6 +717,9 @@ def get_pages_to_process(page_count: int, config: dict) -> Tuple[List[int], str]
     """
     Determine which pages to process based on adaptive strategy.
 
+    This function decides whether to use smart filtering or fall back to simple truncation.
+    The decision is based on the enable_smart_filtering configuration.
+
     Args:
         page_count: Total number of pages in PDF
         config: Configuration dictionary with processing_settings
@@ -392,19 +730,27 @@ def get_pages_to_process(page_count: int, config: dict) -> Tuple[List[int], str]
             strategy_description: Description of the strategy used
     """
     processing_settings = config.get("processing_settings", {})
-    threshold = processing_settings.get("short_paper_threshold", 15)
-    max_limit = processing_settings.get("max_scan_limit", 10)
+    enable_smart = processing_settings.get("enable_smart_filtering", True)
 
-    if should_scan_all_pages(page_count, threshold):
-        # Process all pages
-        pages = list(range(1, page_count + 1))
-        description = f"全量扫描 ({page_count}页 ≤ {threshold}页阈值)"
+    if enable_smart and "pdf_path" in config:
+        # Use smart page filtering
+        pages, desc, _ = get_smart_pages_to_process(config["pdf_path"], config)
+        return pages, desc
     else:
-        # Process only first max_limit pages
-        pages = list(range(1, min(page_count, max_limit) + 1))
-        description = f"截断扫描 (前{len(pages)}页/{page_count}页，阈值: {threshold}页)"
+        # Fall back to simple truncation strategy
+        threshold = processing_settings.get("short_paper_threshold", 10)
+        max_limit = processing_settings.get("max_scan_limit", 10)
 
-    return pages, description
+        if should_scan_all_pages(page_count, threshold):
+            # Process all pages
+            pages = list(range(1, page_count + 1))
+            description = f"全量扫描 ({page_count}页 ≤ {threshold}页阈值)"
+        else:
+            # Process only first max_limit pages
+            pages = list(range(1, min(page_count, max_limit) + 1))
+            description = f"截断扫描 (前{len(pages)}页/{page_count}页，阈值: {threshold}页)"
+
+        return pages, description
 
 
 def convert_pdf_to_images(
@@ -460,6 +806,10 @@ def convert_pdf_to_images(
                 dpi=dpi,
                 fmt=fmt
             )
+
+        # Log success (console: brief, file: detailed)
+        logger.info(f"成功转换 {len(images)} 页为图片")
+        logger.debug(f"图片转换详情 - PDF: {pdf_path}, 页码: {page_numbers}, DPI: {dpi}, 格式: {fmt}")
 
         return images
 
@@ -596,6 +946,7 @@ def call_vision_api(
         Exception: If all retries fail
     """
     import time
+    import json
     from openai import OpenAIError
 
     # Add model and parameters to payload
@@ -607,41 +958,46 @@ def call_vision_api(
 
     for attempt in range(max_retries):
         try:
+            # Log API request (file only)
+            logger.debug(f"API请求 - 模型: {model_name}, max_tokens: {max_tokens}")
+            logger.debug(f"请求payload: {payload}")
+
             # Make API call
+            logger.info("🤖 正在调用AI模型...")
             response = client.chat.completions.create(**payload)
 
             # Extract the response text
             if response.choices and len(response.choices) > 0:
                 content = response.choices[0].message.content
 
-                # Try to parse as JSON
-                try:
-                    import json
-                    # The response might be wrapped in markdown code blocks
-                    content = content.strip()
-                    if content.startswith("```json"):
-                        content = content[7:]
-                    if content.startswith("```"):
-                        content = content[3:]
-                    if content.endswith("```"):
-                        content = content[:-3]
+                # Log API response (file only)
+                logger.debug(f"API响应长度: {len(content)}")
+                logger.debug(f"完整响应内容: {content}")
 
-                    result = json.loads(content.strip())
+                # Parse response using new function with truncation detection
+                try:
+                    result = parse_ai_response(content)
                     return result
                 except json.JSONDecodeError as e:
-                    raise Exception(f"API返回的JSON格式无效: {str(e)}\n响应内容: {content[:200]}...")
+                    # Truncated JSON detected
+                    truncated_preview = content[-500:] if len(content) > 500 else content
+                    raise json.JSONDecodeError(
+                        f"JSON解析失败（可能被截断）: {str(e)}",
+                        truncated_preview,
+                        0
+                    )
             else:
                 raise Exception("API返回空响应")
 
         except OpenAIError as e:
             last_error = e
-            print(f"  API调用失败 (attempt {attempt + 1}/{max_retries}): {e}")
+            logger.error(f"API调用失败 (attempt {attempt + 1}/{max_retries}): {e}")
 
             # Check if we should retry
             if attempt < max_retries - 1:
                 # Exponential backoff
                 wait_time = (2 ** attempt) * 2  # 2, 4, 8 seconds
-                print(f"  Retrying in {wait_time} seconds...")
+                logger.info(f"等待{wait_time}秒后重试...")
                 time.sleep(wait_time)
             else:
                 break
@@ -695,9 +1051,12 @@ def process_pdf(
         print(f"      总页数: {page_count}")
 
         # Step 2: Determine pages to process using adaptive strategy
-        pages_to_process, strategy_desc = get_pages_to_process(page_count, config)
+        # Add pdf_path to config temporarily for get_smart_pages_to_process
+        config_with_path = config.copy()
+        config_with_path["pdf_path"] = pdf_path
+        pages_to_process, strategy_desc = get_pages_to_process(page_count, config_with_path)
         print(f"  🎯 {strategy_desc}")
-        print(f"      处理页码: {pages_to_process[:3]}{'...' if len(pages_to_process) > 3 else ''}")
+        print(f"      处理页码: {pages_to_process}")
 
         # Step 3: Convert PDF pages to images
         print(f"  🖼️  正在转换为图片...")
@@ -742,7 +1101,24 @@ def process_pdf(
         print(f"  ✅ API调用成功！")
         return result
 
+    except json.JSONDecodeError as e:
+        # JSON parsing error - log detailed info to file, brief to console
+        logger.error(f"❌ JSON解析失败: {filename}")
+        logger.error(f"JSON解析错误详情: {str(e)}")
+        logger.debug(f"截断内容预览: {e.doc[:500]}...")
+        logger.exception("完整异常堆栈:")
+
+        print(f"  ❌ JSON解析失败: {filename}")
+        print(f"    错误: {str(e)}")
+        if hasattr(e, 'doc'):
+            print(f"    截断内容预览: {e.doc[:200]}...")
+        raise
+
     except Exception as e:
+        # General error - log to both console and file
+        logger.error(f"处理失败: {filename} - {str(e)}")
+        logger.exception("完整异常堆栈:")
+
         print(f"  ❌ 处理失败: {str(e)}")
         raise
 

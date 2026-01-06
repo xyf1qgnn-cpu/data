@@ -8,6 +8,8 @@ from validation import validate_dataframe
 from styling import export_to_excel_with_styling, generate_validation_report
 from processing import process_pdf
 from config_manager import load_and_validate_config, ConfigError, check_poppler_installation
+from logger import setup_logger
+import logging
 
 # Configuration
 # Base directory (script location)
@@ -125,35 +127,32 @@ SYSTEM_PROMPT = """
 - 区分数字 `0` 和字母 `O`。
 - 注意小数点 `.` 的位置（结合土木工程常识，例如 fc 不可能是 305 MPa）。
 
-# 4. Output Format (JSON Only) 
-Output a JSON object with keys: "Group_A", "Group_B", "Group_C", "is_valid", "reason". 
+# 4. Output Format (JSON Only - STRICT RULES)
+**CRITICAL OUTPUT REQUIREMENTS:**
 
-**JSON Schema:** 
-{ 
-  "is_valid": true,
-  "reason": "Valid CFST experimental data",
-  "Group_A": [ 
-    { 
-      "ref_no": "", 
-      "specimen_label": "String", 
-      "fc_value": Number, 
-      "fc_type": "String", 
-      "fy": Number, 
-      "fcy150": "", 
-      "r_ratio": Number, 
-      "b": Number, 
-      "h": Number, 
-      "t": Number, 
-      "r0": Number, 
-      "L": Number, 
-      "e1": Number, 
-      "e2": Number, 
-      "n_exp": Number 
-    } 
-  ], 
-  "Group_B": [], 
-  "Group_C": [] 
-} 
+1. **PURE JSON ONLY**: Output ONLY a raw JSON string. DO NOT wrap in Markdown code blocks (```json ... ```). DO NOT add any explanatory text before or after the JSON.
+
+2. **reason FIELD CONSTRAINT**: The `reason` field MUST be either:
+   - An empty string: `""` (preferred for valid data)
+   - OR a brief explanation with MAXIMUM 10 words (e.g., "Not experimental CFST column paper")
+   - DO NOT write long explanations or paragraphs in the reason field
+
+3. **JSON Structure**:
+```json
+{
+  "is_valid": true/false,
+  "reason": "",
+  "Group_A": [ ... ],
+  "Group_B": [ ... ],
+  "Group_C": [ ... ]
+}
+```
+
+**EXAMPLES OF CORRECT OUTPUT:**
+✅ `{"is_valid": true, "reason": "", "Group_A": [{"ref_no": "", "specimen_label": "C-1", ...}]}`
+
+❌ WRONG: ```json{...}``` (Markdown wrapping)
+❌ WRONG: `{"is_valid": true, "reason": "The paper provides comprehensive experimental data..."}` (Too long)
 """
 
 def move_failed_file(file_path):
@@ -389,9 +388,24 @@ def archive_results(config, state):
     return True
 
 def main():
+    # Load state first to get batch number for logging
+    state = load_state()
+    batch_number = state.get('batch_number', 1)
+
+    # Setup logger with batch-based log file
+    log_file = f"./logs/Batch-{batch_number}_{datetime.now().strftime('%Y-%m-%d')}.log"
+    logger = setup_logger(log_file=log_file, console_level=logging.INFO, file_level=logging.DEBUG)
+
+    # Log batch start information (file only)
+    logger.info("=" * 60)
+    logger.info(f"CFST Data Extractor - Batch #{batch_number}")
+    logger.info(f"日志文件: {log_file}")
+    logger.info("=" * 60)
+
     # Check dependencies first
     poppler_ok, poppler_msg = check_poppler_installation()
     if not poppler_ok:
+        logger.error(f"Poppler检查失败: {poppler_msg}")
         print(poppler_msg)
         return
 
@@ -399,24 +413,29 @@ def main():
     try:
         config_path = os.path.join(BASE_DIR, "config.json")
         config = load_and_validate_config(config_path)
+        logger.debug(f"配置加载成功: {config}")
     except ConfigError as e:
+        logger.error(f"配置错误: {e}")
         print(f"配置错误: {e}")
         print("请检查 config.json 文件并修复上述问题")
         return
     except Exception as e:
+        logger.error(f"加载配置时出错: {e}")
         print(f"加载配置时出错: {e}")
         return
 
-    state = load_state()
+    logger.info("系统初始化完成，开始处理PDF文件")
 
     # Import PDFs from Windows if configured
     if config.get("auto_cleanup", True):
+        logger.info("=== Starting PDF Automation Workflow ===")
         print("\n=== Starting PDF Automation Workflow ===")
         print(f"Batch #{state.get('batch_number', 1)} - Last archive: {state.get('last_archive_date', 'Never')}")
 
         # Import PDFs
         import_success = import_pdfs_from_windows(config)
         if not import_success:
+            logger.warning("PDF import failed or no PDFs found. Exiting workflow.")
             print("PDF import failed or no PDFs found. Exiting workflow.")
             return
 
@@ -431,9 +450,11 @@ def main():
         # We'll use standard OpenAI client for vision API
         client = OpenAI(api_key=api_key, base_url=base_url)
 
+        logger.info(f"OpenAI client initialized with model: {model_name}")
         print(f"OpenAI client initialized with model: {model_name}")
 
     except Exception as e:
+        logger.error(f"Failed to initialize OpenAI client: {e}")
         print(f"Failed to initialize OpenAI client: {e}")
         return
 
@@ -503,6 +524,13 @@ def main():
                     move_to_manual_review(file_path, config)
             else:
                 print(f"  - ❌ 提取数据失败: {filename}")
+
+        except json.JSONDecodeError as e:
+            # JSON parsing/truncation error - move to Manual_Review
+            print(f"  - ❌ JSON解析失败: {filename}")
+            print(f"    错误: {str(e)}")
+            print(f"    截断内容预览: {e.doc[:200]}...")
+            move_to_manual_review(file_path, config)
 
         except Exception as e:
             print(f"  - ❌ 处理失败: {filename} - {str(e)}")

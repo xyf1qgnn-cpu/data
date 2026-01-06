@@ -105,18 +105,19 @@ def validate_processing_settings(processing_settings: Dict[str, Any]) -> list:
     """
     errors = []
 
-    # Check short_paper_threshold
+    # Check short_paper_threshold - 已更新为10页（根据需求）
     if "short_paper_threshold" in processing_settings:
         threshold = processing_settings["short_paper_threshold"]
         if not isinstance(threshold, int):
             errors.append("processing_settings.short_paper_threshold: 必须是整数")
         elif threshold <= 0:
             errors.append(f"processing_settings.short_paper_threshold: 值必须大于0，当前: {threshold}")
-        elif threshold > 1000:
-            errors.append(f"processing_settings.short_paper_threshold: 值过大({threshold})，建议≤100")
+        elif threshold > 50:
+            errors.append(f"processing_settings.short_paper_threshold: 值过大({threshold})，建议≤50")
     else:
-        # Use default if not provided
-        processing_settings["short_paper_threshold"] = 15
+        # Default to 10 pages per requirements
+        processing_settings["short_paper_threshold"] = 10
+        print("  使用默认设置: short_paper_threshold = 10")
 
     # Check max_scan_limit
     if "max_scan_limit" in processing_settings:
@@ -129,6 +130,7 @@ def validate_processing_settings(processing_settings: Dict[str, Any]) -> list:
             errors.append(f"processing_settings.max_scan_limit: 值过大({limit})，建议≤50")
     else:
         processing_settings["max_scan_limit"] = 10
+        print("  使用默认设置: max_scan_limit = 10")
 
     # Check image_dpi
     if "image_dpi" in processing_settings:
@@ -141,7 +143,145 @@ def validate_processing_settings(processing_settings: Dict[str, Any]) -> list:
             errors.append(f"processing_settings.image_dpi: DPI过高({dpi})，可能影响性能")
     else:
         processing_settings["image_dpi"] = 150
+        print("  使用默认设置: image_dpi = 150")
 
+    # Check enable_smart_filtering
+    if "enable_smart_filtering" in processing_settings:
+        enabled = processing_settings["enable_smart_filtering"]
+        if not isinstance(enabled, bool):
+            errors.append("processing_settings.enable_smart_filtering: 必须是布尔值")
+    else:
+        processing_settings["enable_smart_filtering"] = True
+        print("  使用默认设置: enable_smart_filtering = true")
+
+    # Check absolute_max_pages
+    if "absolute_max_pages" in processing_settings:
+        max_pages = processing_settings["absolute_max_pages"]
+        if not isinstance(max_pages, int):
+            errors.append("processing_settings.absolute_max_pages: 必须是整数")
+        elif max_pages <= 0:
+            errors.append(f"processing_settings.absolute_max_pages: 值必须大于0，当前: {max_pages}")
+        elif max_pages > 100:
+            errors.append(f"processing_settings.absolute_max_pages: 值过大({max_pages})，建议≤50")
+    else:
+        processing_settings["absolute_max_pages"] = 30
+        print("  使用默认设置: absolute_max_pages = 30")
+
+    # Validate page_filtering settings if smart filtering is enabled
+    if processing_settings.get("enable_smart_filtering", True):
+        errors.extend(validate_page_filtering_settings(processing_settings))
+
+    return errors
+
+
+def validate_page_filtering_settings(processing_settings: Dict[str, Any]) -> list:
+    """
+    Validate page filtering settings (smart filtering configuration).
+
+    Args:
+        processing_settings: Processing settings dictionary
+
+    Returns:
+        List of error messages (empty if valid)
+    """
+    errors = []
+    page_filtering = processing_settings.get("page_filtering", {})
+
+    # Check max_selected_pages
+    if "max_selected_pages" in page_filtering:
+        max_selected = page_filtering["max_selected_pages"]
+        if not isinstance(max_selected, int):
+            errors.append("processing_settings.page_filtering.max_selected_pages: 必须是整数")
+        elif max_selected <= 0:
+            errors.append(f"processing_settings.page_filtering.max_selected_pages: 值必须大于0，当前: {max_selected}")
+        elif max_selected > processing_settings.get("absolute_max_pages", 30):
+            errors.append(f"processing_settings.page_filtering.max_selected_pages: 值({max_selected})不能超过absolute_max_pages限制")
+    else:
+        page_filtering["max_selected_pages"] = 8
+
+    # Check mandatory_include_first_page
+    if "mandatory_include_first_page" in page_filtering:
+        mandatory = page_filtering["mandatory_include_first_page"]
+        if not isinstance(mandatory, bool):
+            errors.append("processing_settings.page_filtering.mandatory_include_first_page: 必须是布尔值")
+    else:
+        page_filtering["mandatory_include_first_page"] = True
+
+    # Validate weights
+    if "weights" in page_filtering:
+        weights = page_filtering["weights"]
+        if not isinstance(weights, dict):
+            errors.append("processing_settings.page_filtering.weights: 必须是字典对象")
+        else:
+            # Check individual weights
+            for weight_key in ["table_weight", "data_weight", "reference_weight", "base_weight"]:
+                if weight_key in weights:
+                    value = weights[weight_key]
+                    if not isinstance(value, (int, float)):
+                        errors.append(f"processing_settings.page_filtering.weights.{weight_key}: 必须是数字")
+    else:
+        # Set default weights
+        page_filtering["weights"] = {
+            "table_weight": 10,
+            "data_weight": 5,
+            "reference_weight": -5,
+            "base_weight": 1
+        }
+
+    # Validate patterns
+    if "patterns" in page_filtering:
+        patterns = page_filtering["patterns"]
+        if not isinstance(patterns, dict):
+            errors.append("processing_settings.page_filtering.patterns: 必须是字典对象")
+        else:
+            # Check pattern arrays
+            for pattern_key in ["table_patterns", "data_patterns", "reference_patterns"]:
+                if pattern_key in patterns:
+                    pattern_list = patterns[pattern_key]
+                    if not isinstance(pattern_list, list):
+                        errors.append(f"processing_settings.page_filtering.patterns.{pattern_key}: 必须是数组")
+                    else:
+                        # Check each pattern is a valid regex
+                        import re
+                        for idx, pattern in enumerate(pattern_list):
+                            if not isinstance(pattern, str):
+                                errors.append(f"processing_settings.page_filtering.patterns.{pattern_key}[{idx}]: 必须是字符串")
+                            else:
+                                try:
+                                    re.compile(pattern)
+                                except re.error as e:
+                                    errors.append(f"processing_settings.page_filtering.patterns.{pattern_key}[{idx}]: 无效的正则表达式: {str(e)}")
+    else:
+        # Set default patterns
+        page_filtering["patterns"] = {
+            "table_patterns": [
+                r"(?i)Table\s+\d+",
+                r"(?i)Tab\.\s*\d+",
+                r"(?i)TABLE\s+\d+"
+            ],
+            "data_patterns": [
+                r"(?i)Specimen",
+                r"(?i)Experimental",
+                r"(?i)Test\s+results?",
+                r"\d+\.\d+\s*(mm|MPa|kN)",
+                r"(?i)[BD]\/t\s*[=:]?\s*\d+",
+                r"(?i)Load[-\s]displacement",
+                r"(?i)Axial\s+(load|force)",
+                r"(?i)Compressive\s+strength"
+            ],
+            "reference_patterns": [
+                r"(?i)References?",
+                r"(?i)Bibliography",
+                r"(?i)Citation",
+                r"\[[\d,\s]+\]",
+                r"(?i)et\s+al\.",
+                r"(?i)Journal\s+of",
+                r"\d{4}\s*[:,]\s*\d+"
+            ]
+        }
+
+    # Update processing_settings with validated page_filtering
+    processing_settings["page_filtering"] = page_filtering
     return errors
 
 

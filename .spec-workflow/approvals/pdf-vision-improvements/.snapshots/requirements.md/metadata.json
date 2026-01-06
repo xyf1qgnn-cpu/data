@@ -1,0 +1,30 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-vision-improvements/requirements.md",
+  "currentVersion": 3,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-06T15:13:24.647Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767712404622_er9izywcn",
+      "approvalTitle": "AI视觉处理改进需求 - JSON约束和智能页面筛选"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-06T15:28:53.790Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1767713142954_8gmskuxoe",
+      "approvalTitle": "AI视觉处理改进需求 - JSON约束和智能页面筛选"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2026-01-06T15:40:19.569Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767714001165_v5rgnyye9",
+      "approvalTitle": "AI视觉处理改进需求 - JSON约束和智能页面筛选"
+    }
+  ]
+}

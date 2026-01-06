@@ -1,13 +1,59 @@
 {
   "api_settings": {
-    "api_key": "sk-6WUoYVAkFb9B62167fd5T3BlbKFJe8057E7983f840c382bf",
+    "api_key": "",
     "base_url": "https://api.ohmygpt.com/v1",
     "model_name": "vertex-gemini-3-flash-preview"
   },
   "processing_settings": {
     "short_paper_threshold": 15,
     "max_scan_limit": 10,
-    "image_dpi": 150
+    "image_dpi": 150,
+    "enable_smart_filtering": true,
+    "absolute_max_pages": 30,
+    "page_filtering": {
+      "max_selected_pages": 8,
+      "mandatory_include_first_page": true,
+      "weights": {
+        "table_weight": 40,
+        "data_weight": 5,
+        "reference_weight": -20,
+        "simulation_weight": -10,
+        "base_weight": 0
+      },
+      "patterns": {
+        "table_patterns": [
+          "(?i)^\\s*Table\\s*\\d+",
+          "(?i)^\\s*Tab\\.\\s*\\d+",
+          "(?i)List\\s+of\\s+specimens",
+          "(?i)Test\\s+matrix",
+          "(?i)^\\s*TABLE\\s*\\d+"
+        ],
+        "data_patterns": [
+          "(?i)Specimen\\s+(label|id|details)",
+          "\\b(N_?exp|P_?exp|P_?test|P_?u|P_?max|Peak\\s+Load)\\b",
+          "\\b(f_?y|f_?cu|E_?s)\\b",
+          "(?i)Fig\\.\\s*\\d+\\s*(Test|Setup|Failure|Mode)",
+          "(?i)Failure\\s+modes?",
+          "(?i)Eccentricity|\\be_?0\\b",
+          "(?i)Diameter|Width|Depth|Thickness",
+          "\\b[DntBLH]\\s*[\\d]*\\s*[tnDB]\\b",
+          "\\d+\\.\\d+\\s*(?=(MPa|kN))",
+          "[A-Za-z]{1,4}-\\d+[-.]?\\d*"
+        ],
+        "reference_patterns": [
+          "(?i)^\\s*References?\\s*$",
+          "(?i)^\\s*Bibliography\\s*$"
+        ],
+        "simulation_patterns": [
+          "(?i)Finite\\s+Element",
+          "(?i)FE\\s+model",
+          "(?i)Mesh\\s+generation",
+          "(?i)Simulation\\s+results",
+          "(?i)Numerical\\s+analysis",
+          "(?i)Analytical\\s+study"
+        ]
+      }
+    }
   },
   "paths": {
     "windows_source_path": "/mnt/e/Documents/data_unextracted",

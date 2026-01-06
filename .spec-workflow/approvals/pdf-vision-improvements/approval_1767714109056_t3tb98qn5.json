@@ -1,0 +1,29 @@
+{
+  "id": "approval_1767714109056_t3tb98qn5",
+  "title": "AI视觉处理改进设计 - JSON约束和智能页面筛选",
+  "filePath": ".spec-workflow/specs/pdf-vision-improvements/design.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2026-01-06T15:41:49.056Z",
+  "category": "spec",
+  "categoryName": "pdf-vision-improvements",
+  "response": "Feedback Summary (1 comments):\n\nSpecific Text Comments:\n1. \"B -->|<10页| C[跳过筛选]\": 小于10页也得进行打分，只提取得分大于等于零的页面，排除掉参考文献页面\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"小于10页也得进行打分，只提取得分大于等于零的页面，排除掉参考文献页面\",\n      \"timestamp\": \"2026-01-06T15:45:01.369Z\",\n      \"selectedText\": \"B -->|<10页| C[跳过筛选]\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1767714301369_3ntybql2h\",\n      \"startOffset\": 1098,\n      \"endOffset\": 1117\n    }\n  ],\n  \"summary\": \"Feedback Summary (1 comments):\\n\\nSpecific Text Comments:\\n1. \\\"B -->|<10页| C[跳过筛选]\\\": 小于10页也得进行打分，只提取得分大于等于零的页面，排除掉参考文献页面\\n\",\n  \"timestamp\": \"2026-01-06T15:45:19.610Z\"\n}",
+  "respondedAt": "2026-01-06T15:45:19.618Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "小于10页也得进行打分，只提取得分大于等于零的页面，排除掉参考文献页面",
+      "timestamp": "2026-01-06T15:45:01.369Z",
+      "selectedText": "B -->|<10页| C[跳过筛选]",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1767714301369_3ntybql2h",
+      "startOffset": 1098,
+      "endOffset": 1117
+    }
+  ]
+}

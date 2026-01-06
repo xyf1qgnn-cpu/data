@@ -1,0 +1,57 @@
+{
+  "id": "approval_1767713142954_8gmskuxoe",
+  "title": "AI视觉处理改进需求 - JSON约束和智能页面筛选",
+  "filePath": ".spec-workflow/specs/pdf-vision-improvements/requirements.md",
+  "type": "document",
+  "status": "needs-revision",
+  "createdAt": "2026-01-06T15:25:42.954Z",
+  "category": "spec",
+  "categoryName": "pdf-vision-improvements",
+  "response": "Feedback Summary (3 comments):\n\nSpecific Text Comments:\n1. \"IF PDF页数 ≤ 15页 THEN 系统SHALL跳过筛选机制，处理所有页面（保持现有短论文策略...\": 根据各页面的打分，取最高的10张\n2. \"- **向后兼容**：保持现有短论文全量扫描的逻辑不变\": 不保留\n3. \"IF 选出的页面总数超过配置的最大限制（例如10页）THEN 系统SHALL只处理得分最高的N页\": 处理最高的10张\n",
+  "annotations": "{\n  \"decision\": \"needs-revision\",\n  \"comments\": [\n    {\n      \"type\": \"selection\",\n      \"comment\": \"根据各页面的打分，取最高的10张\",\n      \"timestamp\": \"2026-01-06T15:26:39.448Z\",\n      \"selectedText\": \"IF PDF页数 ≤ 15页 THEN 系统SHALL跳过筛选机制，处理所有页面（保持现有短论文策略）\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1767713199448_3smwg9k6k\",\n      \"startOffset\": 1362,\n      \"endOffset\": 1413\n    },\n    {\n      \"type\": \"selection\",\n      \"comment\": \"不保留\",\n      \"timestamp\": \"2026-01-06T15:27:34.067Z\",\n      \"selectedText\": \"- **向后兼容**：保持现有短论文全量扫描的逻辑不变\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#FFEB3B\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1767713254067_jlej6925p\",\n      \"startOffset\": 1618,\n      \"endOffset\": 1645\n    },\n    {\n      \"type\": \"selection\",\n      \"comment\": \"处理最高的10张\",\n      \"timestamp\": \"2026-01-06T15:28:37.347Z\",\n      \"selectedText\": \"IF 选出的页面总数超过配置的最大限制（例如10页）THEN 系统SHALL只处理得分最高的N页\",\n      \"highlightColor\": {\n        \"bg\": \"rgba(255, 235, 59, 0.3)\",\n        \"border\": \"#ffeb3b\",\n        \"name\": \"#ffeb3b\"\n      },\n      \"id\": \"comment_1767713293619_j4edgxe9v\",\n      \"startOffset\": 1466,\n      \"endOffset\": 1514\n    }\n  ],\n  \"summary\": \"Feedback Summary (3 comments):\\n\\nSpecific Text Comments:\\n1. \\\"IF PDF页数 ≤ 15页 THEN 系统SHALL跳过筛选机制，处理所有页面（保持现有短论文策略...\\\": 根据各页面的打分，取最高的10张\\n2. \\\"- **向后兼容**：保持现有短论文全量扫描的逻辑不变\\\": 不保留\\n3. \\\"IF 选出的页面总数超过配置的最大限制（例如10页）THEN 系统SHALL只处理得分最高的N页\\\": 处理最高的10张\\n\",\n  \"timestamp\": \"2026-01-06T15:28:53.778Z\"\n}",
+  "respondedAt": "2026-01-06T15:28:53.795Z",
+  "comments": [
+    {
+      "type": "selection",
+      "comment": "根据各页面的打分，取最高的10张",
+      "timestamp": "2026-01-06T15:26:39.448Z",
+      "selectedText": "IF PDF页数 ≤ 15页 THEN 系统SHALL跳过筛选机制，处理所有页面（保持现有短论文策略）",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1767713199448_3smwg9k6k",
+      "startOffset": 1362,
+      "endOffset": 1413
+    },
+    {
+      "type": "selection",
+      "comment": "不保留",
+      "timestamp": "2026-01-06T15:27:34.067Z",
+      "selectedText": "- **向后兼容**：保持现有短论文全量扫描的逻辑不变",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#FFEB3B",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1767713254067_jlej6925p",
+      "startOffset": 1618,
+      "endOffset": 1645
+    },
+    {
+      "type": "selection",
+      "comment": "处理最高的10张",
+      "timestamp": "2026-01-06T15:28:37.347Z",
+      "selectedText": "IF 选出的页面总数超过配置的最大限制（例如10页）THEN 系统SHALL只处理得分最高的N页",
+      "highlightColor": {
+        "bg": "rgba(255, 235, 59, 0.3)",
+        "border": "#ffeb3b",
+        "name": "#ffeb3b"
+      },
+      "id": "comment_1767713293619_j4edgxe9v",
+      "startOffset": 1466,
+      "endOffset": 1514
+    }
+  ]
+}
