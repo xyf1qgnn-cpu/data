@@ -24,7 +24,7 @@ EXCLUDED_DIRECTORY = os.path.join(BASE_DIR, "Excluded")
 # Output Excel location (same as script directory)
 OUTPUT_DIRECTORY = BASE_DIR
 
-API_KEY = "sk-FPzkiisouMuQm2M1uhneoyigxS7qDBOel102gGZGocV4GfCx"  # Replace with your actual API key
+API_KEY = "sk-TcRezCA6VhsQ5bQvUwQxB0A6HkqKYOmpddeIGC9JKYPC6bEU"  # Replace with your actual API key
 BASE_URL = "https://api.silra.cn/v1"
 MODEL_NAME = "deepseek-chat"
 
@@ -52,11 +52,18 @@ SYSTEM_PROMPT = """
 # 0. Relevance & Validity Check (CRITICAL)
 在提取数据前，必须先判断文档是否符合要求。
 **符合要求的标准**（必须全部满足）：
-1. **对象**: 必须是钢管混凝土 (CFST) 构件。
-2. **内容**: 必须包含 **试验数据 (Experimental Data/Test Results)**。
+1. **对象**: 必须是 **钢管混凝土 (CFST)** 柱构件。
+   - **核心特征**: 外部为单层钢管 (Single Skin Steel Tube)，内部核心区域主要填充混凝土。
+   - **允许包含 (Allowed Variations)**:
+     - 再生骨料混凝土 (RAC-filled)。
+     - 不锈钢/高强钢 (Stainless/High-strength steel)。
+     - 带内部加劲肋 (With internal stiffeners/ribs)。
+     - 核心含型钢 (Steel-reinforced / SR-CFST)。
+2. **内容**: 必须包含 **试验数据 (Experimental Data)**。
 3. **构件类型**: 必须是柱 (Columns/Stub columns)。
 
 **拒绝情况**：
+- 拒绝 CFDST: 如果是中空夹层/双层管 (Double Skin / CFDST / SRCDST)，即包含内管和外管的，**直接拒绝**。
 - 如果是纯有限元模拟 (FEA only) 且无试验验证 -> **拒绝**。
 - 如果是纯理论推导 (Analytical/Derivation only) -> **拒绝**。
 - 如果是梁 (Beams) 或 节点 (Joints) -> **拒绝**。
