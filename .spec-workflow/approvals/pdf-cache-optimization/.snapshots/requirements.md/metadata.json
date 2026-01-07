@@ -1,0 +1,30 @@
+{
+  "filePath": "/home/thelya/Work/data/.spec-workflow/specs/pdf-cache-optimization/requirements.md",
+  "currentVersion": 3,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-07T09:27:34.011Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767778053972_ktljlu936",
+      "approvalTitle": "需求文档: PDF缓存处理优化"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T09:35:43.482Z",
+      "trigger": "revision_requested",
+      "approvalId": "approval_1767778053972_ktljlu936",
+      "approvalTitle": "需求文档: PDF缓存处理优化"
+    },
+    {
+      "version": 3,
+      "filename": "snapshot-003.json",
+      "timestamp": "2026-01-07T09:39:08.132Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767778651518_r24qn2kur",
+      "approvalTitle": "需求文档: PDF缓存处理优化"
+    }
+  ]
+}

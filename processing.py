@@ -109,122 +109,6 @@ def parse_ai_response(response_content: str) -> Dict[str, Any]:
         )
 
 
-def get_smart_pages_to_process(pdf_path: str, config: Dict[str, Any]) -> Tuple[List[int], str, List[Dict]]:
-    """
-    Main function: determine which pages to process using smart filtering.
-
-    This function implements the two-phase processing strategy:
-    Phase 1: Text scouting (extract text from all pages)
-    Phase 2: Intelligent page selection (score and filter pages)
-
-    Args:
-        pdf_path: Path to the PDF file
-        config: Configuration dictionary
-
-    Returns:
-        Tuple containing:
-        - List of page numbers to process (1-indexed)
-        - Strategy description string (for logging)
-        - Debug info list (containing page scores and selection reasons)
-    """
-    processing_settings = config.get("processing_settings", {})
-    page_filtering = processing_settings.get("page_filtering", {})
-
-    # Get configuration parameters
-    short_threshold = processing_settings.get("short_paper_threshold", 10)
-    max_selected = page_filtering.get("max_selected_pages", 8)
-    absolute_max = processing_settings.get("absolute_max_pages", 30)
-    mandatory_first = page_filtering.get("mandatory_include_first_page", True)
-
-    try:
-        # Phase 1: Extract text from all pages
-        page_texts = extract_page_texts(pdf_path)
-        total_pages = len(page_texts)
-
-        # Short paper: process all pages
-        if total_pages <= short_threshold:
-            pages_to_process = list(range(1, total_pages + 1))
-            strategy_desc = f"全量扫描 ({total_pages}页 ≤ {short_threshold}页阈值，短论文)"
-            debug_info = [{"page": i, "score": 0, "reason": "短论文全量扫描"} for i in pages_to_process]
-            return pages_to_process, strategy_desc, debug_info
-
-        # Long paper: apply smart filtering
-        # Phase 2: Score all pages
-        page_scores = []
-        for page_num, text in page_texts.items():
-            score = score_page_content(text, config)
-            page_scores.append({
-                "page": page_num,
-                "score": score,
-                "text_length": len(text)
-            })
-
-        # Sort by score (descending)
-        page_scores.sort(key=lambda x: x["score"], reverse=True)
-
-        # Select pages
-        selected_pages = []
-        debug_info = []
-
-        # Always include page 1 if configured
-        if mandatory_first and 1 not in selected_pages:
-            selected_pages.append(1)
-            debug_info.append({
-                "page": 1,
-                "score": next((p["score"] for p in page_scores if p["page"] == 1), 0),
-                "reason": "强制包含第1页（摘要）"
-            })
-
-        # Select top-scoring pages (excluding negative scores)
-        for page_info in page_scores:
-            page_num = page_info["page"]
-            score = page_info["score"]
-
-            # Skip if already selected
-            if page_num in selected_pages:
-                continue
-
-            # Skip pages with negative scores (likely references)
-            if score < 0:
-                continue
-
-            # Add to selection
-            selected_pages.append(page_num)
-            debug_info.append({
-                "page": page_num,
-                "score": score,
-                "reason": f"得分: {score}"
-            })
-
-            # Stop when we reach max_selected
-            if len(selected_pages) >= max_selected:
-                break
-
-        # Sort selected pages by page number (for logical order)
-        selected_pages.sort()
-
-        # Apply absolute max limit
-        if len(selected_pages) > absolute_max:
-            selected_pages = selected_pages[:absolute_max]
-            debug_info = debug_info[:absolute_max]
-            strategy_desc = f"智能筛选 (选择{len(selected_pages)}页/{total_pages}页，受{absolute_max}页绝对限制)"
-        else:
-            strategy_desc = f"智能筛选 (选择{len(selected_pages)}页/{total_pages}页)"
-
-        # Log detailed information (file only)
-        logger.debug(f"页面评分详情: {page_scores}")
-        logger.debug(f"选中页码: {selected_pages}")
-        logger.debug(f"选择原因: {debug_info}")
-
-        return selected_pages, strategy_desc, debug_info
-
-    except Exception as e:
-        # Fallback: use simple truncation if smart filtering fails
-        print(f"  ❌ 智能筛选失败: {str(e)}")
-        pages_to_process = list(range(1, min(get_page_count(pdf_path), max_selected) + 1))
-        strategy_desc = f"智能筛选失败，回退到简单截断 (前{len(pages_to_process)}页)"
-        debug_info = [{"page": i, "score": 0, "reason": "智能筛选失败，回退"} for i in pages_to_process]
-        return pages_to_process, strategy_desc, debug_info
 
 
 def score_page_content(text: str, config: Dict[str, Any]) -> int:
@@ -713,45 +597,6 @@ def should_scan_all_pages(page_count: int, threshold: int) -> bool:
     return page_count <= threshold
 
 
-def get_pages_to_process(page_count: int, config: dict) -> Tuple[List[int], str]:
-    """
-    Determine which pages to process based on adaptive strategy.
-
-    This function decides whether to use smart filtering or fall back to simple truncation.
-    The decision is based on the enable_smart_filtering configuration.
-
-    Args:
-        page_count: Total number of pages in PDF
-        config: Configuration dictionary with processing_settings
-
-    Returns:
-        Tuple of (page_numbers, strategy_description)
-            page_numbers: List of page numbers to process (1-indexed)
-            strategy_description: Description of the strategy used
-    """
-    processing_settings = config.get("processing_settings", {})
-    enable_smart = processing_settings.get("enable_smart_filtering", True)
-
-    if enable_smart and "pdf_path" in config:
-        # Use smart page filtering
-        pages, desc, _ = get_smart_pages_to_process(config["pdf_path"], config)
-        return pages, desc
-    else:
-        # Fall back to simple truncation strategy
-        threshold = processing_settings.get("short_paper_threshold", 10)
-        max_limit = processing_settings.get("max_scan_limit", 10)
-
-        if should_scan_all_pages(page_count, threshold):
-            # Process all pages
-            pages = list(range(1, page_count + 1))
-            description = f"全量扫描 ({page_count}页 ≤ {threshold}页阈值)"
-        else:
-            # Process only first max_limit pages
-            pages = list(range(1, min(page_count, max_limit) + 1))
-            description = f"截断扫描 (前{len(pages)}页/{page_count}页，阈值: {threshold}页)"
-
-        return pages, description
-
 
 def convert_pdf_to_images(
     pdf_path: str,
@@ -958,9 +803,10 @@ def call_vision_api(
 
     for attempt in range(max_retries):
         try:
-            # Log API request (file only)
-            logger.debug(f"API请求 - 模型: {model_name}, max_tokens: {max_tokens}")
-            logger.debug(f"请求payload: {payload}")
+            # Log API request summary (file only) - optimize by not logging base64 content
+            image_count = len([item for item in payload["messages"][1]["content"] if item["type"] == "image_url"])
+            logger.debug(f"API请求 - 模型: {model_name}, 图片: {image_count}, max_tokens: {max_tokens}")
+            # Note: Full payload with base64 excluded to reduce log size
 
             # Make API call
             logger.info("🤖 正在调用AI模型...")
@@ -970,9 +816,12 @@ def call_vision_api(
             if response.choices and len(response.choices) > 0:
                 content = response.choices[0].message.content
 
-                # Log API response (file only)
-                logger.debug(f"API响应长度: {len(content)}")
-                logger.debug(f"完整响应内容: {content}")
+                # Log API response (file only) - optimize for large responses
+                logger.debug(f"API响应长度: {len(content)} 字符")
+                if len(content) > 1000:
+                    logger.debug(f"响应预览: {content[:500]}...")
+                else:
+                    logger.debug(f"完整响应内容: {content}")
 
                 # Parse response using new function with truncation detection
                 try:
@@ -1010,35 +859,38 @@ def process_pdf(
     pdf_path: str,
     client,
     config: Dict[str, Any],
-    system_prompt: str
-) -> Dict[str, Any]:
+    system_prompt: str,
+    mode: str = "full"
+) -> Optional[Dict[str, Any]]:
     """
-    Main entry point for vision-based PDF processing.
+    Main entry point for vision-based PDF processing with cache support.
 
     This function orchestrates the entire vision processing pipeline:
     1. Count pages and determine scanning strategy
     2. Convert PDF pages to images
-    3. Encode images to base64
-    4. Build vision API payload
-    5. Call API and parse response
+    3. Save to cache (if mode='extract_only') or encode and call API (if mode='full')
 
     Args:
         pdf_path: Path to the PDF file
         client: OpenAI client instance
         config: Configuration dictionary with processing_settings and api_settings
         system_prompt: System prompt for the AI model
+        mode: Processing mode
+            - "full" (default): Complete processing with API call
+            - "extract_only": Only extract and save images to cache
 
     Returns:
-        Parsed JSON response with extraction results
+        mode="extract_only": {"cache_dir": str, "image_paths": List[str]}
+        mode="full": {"result": Dict[str, Any], "cache_dir": str}
+        None: If processing fails
 
     Raises:
         FileNotFoundError: If PDF file doesn't exist
-        Exception: If any step of the pipeline fails
 
     Workflow Summary:
     -----------------
-    PDF → Page Count → Adaptive Strategy → Image Conversion → Base64 Encoding →
-    Vision API Payload → API Call → JSON Parsing → Return Results
+    PDF → Page Count → Page Selection → Image Conversion → [Cache Save] →
+    [Base64 Encoding → API Call → JSON Parsing] → Return Results
     """
 
     filename = os.path.basename(pdf_path)
@@ -1050,16 +902,24 @@ def process_pdf(
         page_count = get_page_count(pdf_path)
         print(f"      总页数: {page_count}")
 
-        # Step 2: Determine pages to process using adaptive strategy
-        # Add pdf_path to config temporarily for get_smart_pages_to_process
-        config_with_path = config.copy()
-        config_with_path["pdf_path"] = pdf_path
-        pages_to_process, strategy_desc = get_pages_to_process(page_count, config_with_path)
-        print(f"  🎯 {strategy_desc}")
+        # Step 2: Determine pages to process
+        # Determine max_pages from config (default 25)
+        max_pages = config.get('processing_settings', {}).get('max_pages', 25)
+
+        if page_count > max_pages:
+            print(f"  ⚠️  PDF页数({page_count})超过最大限制({max_pages})")
+            print(f"      将只处理前{max_pages}页")
+            pages_to_process = list(range(1, min(max_pages, page_count)))
+        elif page_count > 1:
+            # Process all pages except last (exclude references)
+            pages_to_process = list(range(1, page_count))
+        else:
+            pages_to_process = [1]
+
         print(f"      处理页码: {pages_to_process}")
 
         # Step 3: Convert PDF pages to images
-        print(f"  🖼️  正在转换为图片...")
+        print(f"  🖼️  正在提取图片并保存到cache...")
         processing_settings = config.get("processing_settings", {})
         dpi = processing_settings.get("image_dpi", 150)
 
@@ -1067,13 +927,33 @@ def process_pdf(
             pdf_path,
             page_numbers=pages_to_process,
             dpi=dpi,
-            fmt='png'
+            fmt='jpeg'  # Changed to JPEG for cache
         )
-        print(f"      成功转换 {len(images)} 页为图片")
+        print(f"      成功提取 {len(images)} 页为图片")
 
-        # Step 4: Encode images to base64
+        # Step 4: Save to cache
+        pdf_name = os.path.splitext(filename)[0]
+        cache_dir = os.path.join("./cache", pdf_name)
+        os.makedirs(cache_dir, exist_ok=True)
+
+        image_paths = []
+        for page_num, image in zip(pages_to_process, images):
+            image_path = os.path.join(cache_dir, f"{page_num}.jpg")
+            # Save as JPEG with quality 95
+            image.save(image_path, 'JPEG', quality=95)
+            image_paths.append(image_path)
+
+        print(f"      已保存到 cache: {cache_dir}")
+
+        # If extract_only mode, return cache info
+        if mode == "extract_only":
+            return {"cache_dir": cache_dir, "image_paths": image_paths}
+
+        # Step 5: Encode images for API (for full mode)
         print(f"  🔐 正在编码图片...")
-        encoded_images = encode_images_to_base64(images, format='PNG')
+        # Read images from cache for encoding
+        cache_images = [Image.open(path) for path in image_paths]
+        encoded_images = encode_images_to_base64(cache_images, format='JPEG')
         print(f"      成功编码 {len(encoded_images)} 张图片")
 
         # Step 5: Build vision API payload
@@ -1089,30 +969,23 @@ def process_pdf(
         print(f"  🤖 正在调用AI模型...")
         api_settings = config.get("api_settings", {})
         model_name = api_settings.get("model_name")
+        processing_settings = config.get("processing_settings", {})
+        max_tokens = processing_settings.get("max_tokens", 8192)
 
         result = call_vision_api(
             client,
             payload,
             model_name,
             temperature=0.1,
-            max_tokens=8192
+            max_tokens=max_tokens
         )
 
-        print(f"  ✅ API调用成功！")
-        return result
-
-    except json.JSONDecodeError as e:
-        # JSON parsing error - log detailed info to file, brief to console
-        logger.error(f"❌ JSON解析失败: {filename}")
-        logger.error(f"JSON解析错误详情: {str(e)}")
-        logger.debug(f"截断内容预览: {e.doc[:500]}...")
-        logger.exception("完整异常堆栈:")
-
-        print(f"  ❌ JSON解析失败: {filename}")
-        print(f"    错误: {str(e)}")
-        if hasattr(e, 'doc'):
-            print(f"    截断内容预览: {e.doc[:200]}...")
-        raise
+        if result:
+            print(f"  ✅ API调用成功！")
+            return {"result": result, "cache_dir": cache_dir}
+        else:
+            print(f"  ❌ API调用失败")
+            return None
 
     except Exception as e:
         # General error - log to both console and file
@@ -1120,6 +993,77 @@ def process_pdf(
         logger.exception("完整异常堆栈:")
 
         print(f"  ❌ 处理失败: {str(e)}")
-        raise
+        return None
+
+
+def process_from_cache(
+    cache_dir: str,
+    pdf_name: str,
+    image_paths: List[str],
+    client,
+    config: Dict[str, Any],
+    system_prompt: str
+) -> Optional[Dict[str, Any]]:
+    """
+    第二阶段：从cache读取图片并调用API
+
+    Args:
+        cache_dir: cache目录路径（用于日志）
+        pdf_name: PDF文件名（用于日志和错误报告）
+        image_paths: 图片文件路径列表
+        client: OpenAI客户端
+        config: 配置字典
+        system_prompt: 系统提示词
+
+    Returns:
+        提取的数据字典（成功）或 None（失败）
+    """
+    print(f"  📂 从cache读取: {os.path.basename(cache_dir)}")
+    print(f"      图片数: {len(image_paths)}")
+
+    try:
+        # Read images from cache
+        images = []
+        for path in image_paths:
+            img = Image.open(path)
+            images.append(img)
+
+        # Encode images to base64
+        encoded_images = encode_images_to_base64(images, format='JPEG')
+
+        # Build vision API payload
+        payload = build_vision_payload(
+            encoded_images,
+            system_prompt,
+            user_message="请分析这些学术论文页面并提取CFST构件的试验数据。"
+        )
+
+        # Call vision API
+        api_settings = config.get("api_settings", {})
+        model_name = api_settings.get("model_name")
+        processing_settings = config.get("processing_settings", {})
+        max_tokens = processing_settings.get("max_tokens", 8192)
+
+        result = call_vision_api(
+            client,
+            payload,
+            model_name,
+            temperature=0.1,
+            max_tokens=max_tokens
+        )
+
+        if result:
+            print(f"  ✅ 从cache处理成功！")
+        else:
+            print(f"  ❌ 从cache处理失败")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"从cache处理失败: {pdf_name} - {str(e)}")
+        logger.exception("完整异常堆栈:")
+
+        print(f"  ❌ 从cache处理失败: {str(e)}")
+        return None
 
 

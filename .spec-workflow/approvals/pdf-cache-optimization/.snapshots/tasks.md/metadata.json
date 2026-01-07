@@ -1,0 +1,22 @@
+{
+  "filePath": ".spec-workflow/specs/pdf-cache-optimization/tasks.md",
+  "currentVersion": 2,
+  "snapshots": [
+    {
+      "version": 1,
+      "filename": "snapshot-001.json",
+      "timestamp": "2026-01-07T09:47:20.139Z",
+      "trigger": "initial",
+      "approvalId": "approval_1767779240126_0gt4b3fcu",
+      "approvalTitle": "任务文档: PDF缓存处理优化"
+    },
+    {
+      "version": 2,
+      "filename": "snapshot-002.json",
+      "timestamp": "2026-01-07T09:49:06.953Z",
+      "trigger": "approved",
+      "approvalId": "approval_1767779240126_0gt4b3fcu",
+      "approvalTitle": "任务文档: PDF缓存处理优化"
+    }
+  ]
+}

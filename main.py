@@ -4,9 +4,10 @@ import shutil
 import pandas as pd
 from openai import OpenAI
 from datetime import datetime
+from typing import Optional
 from validation import validate_dataframe
 from styling import export_to_excel_with_styling, generate_validation_report
-from processing import process_pdf
+from processing import process_pdf, process_from_cache
 from config_manager import load_and_validate_config, ConfigError, check_poppler_installation
 from logger import setup_logger
 import logging
@@ -387,7 +388,190 @@ def archive_results(config, state):
 
     return True
 
+def archive_cache(
+    cache_dir: str,
+    pdf_name: str,
+    batch_number: int
+) -> Optional[str]:
+    """
+    将cache目录归档到指定位置
+
+    Args:
+        cache_dir: cache目录路径
+        pdf_name: PDF文件名（用于命名zip文件）
+        batch_number: 批次号
+
+    Returns:
+        归档文件路径（成功）或 None（失败）
+    """
+    # Get archive base path from config
+    config = load_and_validate_config()
+    archive_base = config.get("paths", {}).get("archive_destination", "/mnt/e/Documents/data_extracted")
+
+    if not archive_base or not os.path.exists(archive_base):
+        print(f"归档目标不存在: {archive_base}")
+        return None
+
+    # Create archive directory path
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    archive_dir = os.path.join(archive_base, f"Dataset ({batch_number}) {date_str}")
+
+    try:
+        # Create archive directory
+        os.makedirs(archive_dir, exist_ok=True)
+
+        # Create zip file path (without .zip extension for make_archive)
+        zip_path = os.path.join(archive_dir, f"{pdf_name}_images")
+
+        # Check if zip already exists
+        if os.path.exists(f"{zip_path}.zip"):
+            print(f"归档已存在，跳过: {zip_path}.zip")
+            # Still remove the cache directory if zip exists
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+            return f"{zip_path}.zip"
+
+        # Create zip archive
+        shutil.make_archive(zip_path, 'zip', cache_dir)
+
+        # Verify zip was created and delete cache
+        if os.path.exists(f"{zip_path}.zip"):
+            # Delete cache directory after successful archiving
+            if os.path.exists(cache_dir):
+                shutil.rmtree(cache_dir)
+            print(f"归档成功: {zip_path}.zip")
+            return f"{zip_path}.zip"
+        else:
+            print(f"归档失败: zip文件未创建")
+            return None
+
+    except Exception as e:
+        print(f"归档失败: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+
 def main():
+    # Add command-line argument parsing
+    import argparse
+
+    parser = argparse.ArgumentParser(description='CFST PDF数据提取工具')
+    parser.add_argument(
+        '--mode',
+        choices=['full', 'extract_only', 'process_from_cache'],
+        default='full',
+        help='运行模式: full=完整处理, extract_only=仅提取图片, process_from_cache=从cache处理'
+    )
+    parser.add_argument(
+        '--cache-dir',
+        type=str,
+        help='cache目录路径（process_from_cache模式时使用）'
+    )
+    parser.add_argument(
+        '--pdf-name',
+        type=str,
+        help='PDF文件名（process_from_cache模式时使用）'
+    )
+
+    args = parser.parse_args()
+
+    # Handle process_from_cache mode
+    if args.mode == 'process_from_cache':
+        if not args.cache_dir or not args.pdf_name:
+            print("错误：process_from_cache模式需要--cache-dir和--pdf-name参数")
+            return False
+
+        if not os.path.exists(args.cache_dir):
+            print(f"错误：cache目录不存在: {args.cache_dir}")
+            return False
+
+        print("=== Process from Cache Mode ===")
+        print(f"cache目录: {args.cache_dir}")
+        print(f"PDF名称: {args.pdf_name}")
+
+        # Setup logger
+        log_file = f"./logs/CacheProcess_{args.pdf_name}_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+        os.makedirs("./logs", exist_ok=True)
+        logger = setup_logger(log_file=log_file, console_level=logging.INFO, file_level=logging.DEBUG)
+
+        # Load config and client
+        config = load_and_validate_config()
+        api_key = config['api_settings']['api_key']
+        base_url = config['api_settings']['base_url']
+        client = OpenAI(api_key=api_key, base_url=base_url)
+
+        # Scan for image files
+        image_paths = sorted([
+            os.path.join(args.cache_dir, f)
+            for f in os.listdir(args.cache_dir)
+            if f.endswith('.jpg')
+        ])
+
+        if not image_paths:
+            print(f"错误：cache目录中没有找到jpg图片: {args.cache_dir}")
+            return False
+
+        print(f"找到 {len(image_paths)} 张图片")
+
+        # Process from cache
+        json_data = process_from_cache(args.cache_dir, args.pdf_name, image_paths, client, config, SYSTEM_PROMPT)
+
+        if json_data:
+            print("✅ 从cache处理成功")
+
+            # Load state for batch number
+            state = load_state()
+            batch_number = state.get('batch_number', 1)
+
+            # Archive cache
+            print("归档cache...")
+            archive_result = archive_cache(args.cache_dir, args.pdf_name, batch_number)
+
+            if archive_result:
+                print(f"✅ 归档成功: {archive_result}")
+            else:
+                print("⚠️  归档失败")
+
+            return True
+        else:
+            print("❌ 从cache处理失败")
+            return False
+
+    # Handle extract_only mode
+    elif args.mode == 'extract_only':
+        print("=== Extract Only Mode ===")
+
+        # Load config and setup
+        config = load_and_validate_config()
+        client = None  # No API needed for extract_only
+
+        # Process PDFs
+        pdf_files = [f for f in os.listdir(TARGET_DIRECTORY) if f.lower().endswith('.pdf')]
+
+        if not pdf_files:
+            print(f"没有找到PDF文件: {TARGET_DIRECTORY}")
+            return False
+
+        print(f"找到 {len(pdf_files)} 个PDF文件")
+
+        for filename in pdf_files:
+            file_path = os.path.join(TARGET_DIRECTORY, filename)
+            print(f"\n--- 提取图片: {filename} ---")
+
+            cache_result = process_pdf(file_path, client, config, SYSTEM_PROMPT, mode="extract_only")
+
+            if cache_result:
+                cache_dir = cache_result["cache_dir"]
+                print(f"✅ 提取成功: {cache_dir}")
+            else:
+                print(f"❌ 提取失败")
+
+        print("\n=== 提取完成 ===")
+        return True
+
+    # Default full mode
     # Load state first to get batch number for logging
     state = load_state()
     batch_number = state.get('batch_number', 1)
@@ -481,49 +665,81 @@ def main():
 
     for filename in pdf_files:
         file_path = os.path.join(TARGET_DIRECTORY, filename)
+        pdf_name = os.path.splitext(filename)[0]
 
         try:
-            # Use vision-based PDF processing
-            json_data = process_pdf(file_path, client, config, SYSTEM_PROMPT)
+            # Stage 1: Extract images to cache
+            print(f"\n--- Processing {filename} ---")
+            print("阶段1: 提取图片...")
+            cache_result = process_pdf(file_path, client, config, SYSTEM_PROMPT, mode="extract_only")
 
-            if json_data:
-                # Check validity first
-                is_valid = json_data.get("is_valid", True)
+            if not cache_result:
+                print(f"  ❌ 阶段1失败: 图片提取失败")
+                move_failed_file(file_path)
+                continue
 
-                if not is_valid:
-                    reason = json_data.get("reason", "No reason provided")
-                    print(f"  - ⚠️  文件被排除: {filename}. 原因: {reason}")
-                    move_excluded_file(file_path)
-                    continue
+            cache_info = cache_result
+            cache_dir = cache_info["cache_dir"]
+            image_paths = cache_info["image_paths"]
 
-                # Zero-data detection and handling
-                group_a = json_data.get("Group_A", [])
-                group_b = json_data.get("Group_B", [])
-                group_c = json_data.get("Group_C", [])
+            print(f"  ✅ 阶段1完成: 提取了{len(image_paths)}张图片")
 
-                if not group_a and not group_b and not group_c:
-                    print(f"  - ⚠️  警告: {filename} 未提取到数据，可能是跨页或非常规格式。")
-                    print(f"      将文件移动到 Manual_Review 文件夹...")
-                    move_to_manual_review(file_path, config)
-                    continue
+            # Stage 2: Process from cache
+            print("阶段2: 从cache调用API...")
+            json_data = process_from_cache(cache_dir, pdf_name, image_paths, client, config, SYSTEM_PROMPT)
 
-                # Post-processing & Ref.No Injection
-                success = False
-                for group in ["Group_A", "Group_B", "Group_C"]:
-                    if group in json_data and isinstance(json_data[group], list):
-                        for item in json_data[group]:
-                            item["ref_no"] = filename  # Force assign filename
-                            all_data[group].append(item)
-                        if json_data[group]: # If we found any items in any group
-                             success = True
+            if not json_data:
+                print(f"  ❌ 阶段2失败: API调用失败")
+                # Don't move PDF to NotInput - keep it for retry, but don't archive cache
+                continue
 
-                if success:
-                    print(f"  - ✅ 成功处理 {filename}")
+            print("  ✅ 阶段2完成: API调用成功")
+
+            # Check validity first
+            is_valid = json_data.get("is_valid", True)
+
+            if not is_valid:
+                reason = json_data.get("reason", "No reason provided")
+                print(f"  - ⚠️  文件被排除: {filename}. 原因: {reason}")
+                move_excluded_file(file_path)
+                continue
+
+            # Zero-data detection and handling
+            group_a = json_data.get("Group_A", [])
+            group_b = json_data.get("Group_B", [])
+            group_c = json_data.get("Group_C", [])
+
+            if not group_a and not group_b and not group_c:
+                print(f"  - ⚠️  警告: {filename} 未提取到数据，可能是跨页或非常规格式。")
+                print(f"      将文件移动到 Manual_Review 文件夹...")
+                move_to_manual_review(file_path, config)
+                continue
+
+            # Post-processing & Ref.No Injection
+            success = False
+            for group in ["Group_A", "Group_B", "Group_C"]:
+                if group in json_data and isinstance(json_data[group], list):
+                    for item in json_data[group]:
+                        item["ref_no"] = filename  # Force assign filename
+                        all_data[group].append(item)
+                    if json_data[group]: # If we found any items in any group
+                         success = True
+
+            if success:
+                print(f"  - ✅ 成功处理 {filename}")
+
+                # Stage 3: Archive cache
+                print("阶段3: 归档cache...")
+                archive_result = archive_cache(cache_dir, pdf_name, batch_number)
+
+                if archive_result:
+                    print(f"  ✅ 阶段3完成: 归档到 {os.path.basename(archive_result)}")
                 else:
-                    print(f"  - ⚠️  警告: {filename} 数据为空")
-                    move_to_manual_review(file_path, config)
+                    print(f"  ⚠️  阶段3警告: 归档失败，保留cache")
+
             else:
-                print(f"  - ❌ 提取数据失败: {filename}")
+                print(f"  - ⚠️  警告: {filename} 数据为空")
+                move_to_manual_review(file_path, config)
 
         except json.JSONDecodeError as e:
             # JSON parsing/truncation error - move to Manual_Review
