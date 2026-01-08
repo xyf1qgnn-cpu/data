@@ -6,10 +6,11 @@ import pandas as pd
 from openai import OpenAI
 import instructor
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from models import SpecimenData, ExtractionResult
 from validation import validate_dataframe, get_validation_summary
 from styling import export_to_excel_with_styling, generate_validation_report, reorder_columns_for_export
-from processing import optimize_text_for_extraction
+from parallel_processor import process_directory_parallel, process_directory_sequential
 
 # Configuration
 # Base directory (script location)
@@ -49,6 +50,14 @@ COL_MAPPING = {
 
 # System Prompt
 SYSTEM_PROMPT = """
+# 0. Input Format Note
+The provided text is in **Markdown format** extracted from a PDF document. The last page (references) has been removed. The text may contain:
+- Markdown headings (#, ##, ###)
+- Tables in Markdown table syntax
+- Lists and formatting
+
+When extracting data from tables, use the preserved table structure to accurately map data to specimen labels.
+
 # 0. Relevance & Validity Check (CRITICAL)
 在提取数据前，必须先判断文档是否符合要求。
 **符合要求的标准**（必须全部满足）：
@@ -155,18 +164,28 @@ Output a JSON object with keys: "Group_A", "Group_B", "Group_C", "is_valid", "re
 """
 
 def extract_text_from_pdf(pdf_path):
-    """提取PDF全文文本"""
+    """提取PDF为Markdown格式，并移除最后一页（参考文献）"""
     print(f"Processing PDF: {os.path.basename(pdf_path)}...")
-    text = ""
+    markdown_text = ""
     try:
         with pdfplumber.open(pdf_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+            total_pages = len(pdf.pages)
+            # 遍历所有页面，除了最后一页
+            for i, page in enumerate(pdf.pages):
+                if i < total_pages - 1:  # 跳过最后一页
+                    try:
+                        # 使用 extract_markdown() 而不是 extract_text()
+                        page_markdown = page.extract_markdown()
+                        if page_markdown:
+                            markdown_text += page_markdown + "\n\n"
+                    except AttributeError:
+                        # 如果 pdfplumber 版本不支持 extract_markdown，回退到 extract_text
+                        page_text = page.extract_text()
+                        if page_text:
+                            markdown_text += page_text + "\n\n"
     except Exception as e:
         print(f"Error reading PDF {pdf_path}: {e}")
-    return text
+    return markdown_text
 
 def extract_data_with_ai(client, text):
     """调用DeepSeek API提取数据（使用instructor结构化输出）"""
@@ -175,9 +194,12 @@ def extract_data_with_ai(client, text):
         return None
 
     try:
-        # Optimize text for extraction using intelligent segmentation
-        optimized_text = optimize_text_for_extraction(text)
-        print(f"  - Text optimized: {len(text)} -> {len(optimized_text)} characters")
+        # Simple length check - truncate if too long
+        if len(text) > 50000:
+            print(f"  - Warning: Text is {len(text)} chars, truncating to 50000")
+            processed_text = text[:50000]
+        else:
+            processed_text = text
 
         # Use instructor to get structured output
         result = client.chat.completions.create(
@@ -185,7 +207,7 @@ def extract_data_with_ai(client, text):
             response_model=ExtractionResult,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": "Extract data from this text:\n" + optimized_text}
+                {"role": "user", "content": "Extract data from this text:\n" + processed_text}
             ],
             temperature=0.1,
             max_tokens=8192
@@ -443,25 +465,324 @@ def archive_results(config, state):
 
     return True
 
+def get_pending_directories(config, state):
+    """Get list of directories that need to be processed in polling mode"""
+    source_path = config.get("polling_source_path", "/mnt/e/Documents/data_unextracted")
+    processed_dirs = state.get("polling_processed_dirs", [])
+
+    if not os.path.exists(source_path):
+        print(f"Error: Polling source path does not exist: {source_path}")
+        return []
+
+    pending = []
+    for item in os.listdir(source_path):
+        item_path = os.path.join(source_path, item)
+        if os.path.isdir(item_path) and item_path not in processed_dirs:
+            # Check if directory contains PDF files
+            pdf_files = [f for f in os.listdir(item_path) if f.lower().endswith('.pdf')]
+            if pdf_files:
+                pending.append({
+                    "source_path": item_path,
+                    "name": item,
+                    "pdf_count": len(pdf_files)
+                })
+
+    # Sort by name to ensure consistent processing order
+    return sorted(pending, key=lambda x: x["name"])
+
+def cleanup_directory(dir_info, config):
+    """Clean up after processing a directory: delete Excel and move source if configured"""
+    cleanup_actions = []
+
+    # 1. Delete local Excel file if configured
+    if config.get("delete_excel_after_archive", True):
+        excel_file = os.path.join(OUTPUT_DIRECTORY, "CFST_Extracted_Data.xlsx")
+        if os.path.exists(excel_file):
+            try:
+                os.remove(excel_file)
+                cleanup_actions.append("Deleted local Excel file")
+                print(f"  ✓ Deleted local Excel file")
+            except Exception as e:
+                print(f"  ✗ Error deleting Excel file: {e}")
+
+    # 2. Move source directory if configured
+    if config.get("move_source_after_processing", True):
+        processed_location = config.get("processed_dirs_location", "/mnt/e/Documents/processed_directories")
+        source_path = dir_info["source_path"]
+        dir_name = os.path.basename(source_path)
+
+        # Create processed location directory if it doesn't exist
+        if not os.path.exists(processed_location):
+            try:
+                os.makedirs(processed_location)
+                print(f"  Created processed directories location: {processed_location}")
+            except Exception as e:
+                print(f"  ✗ Error creating processed location: {e}")
+                return cleanup_actions
+
+        # Move the directory
+        dest_path = os.path.join(processed_location, dir_name)
+
+        # Handle duplicate directory names
+        if os.path.exists(dest_path):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dest_path = f"{dest_path}_{timestamp}"
+
+        try:
+            shutil.move(source_path, dest_path)
+            cleanup_actions.append(f"Moved to {dest_path}")
+            print(f"  ✓ Moved processed directory to: {dest_path}")
+        except Exception as e:
+            print(f"  ✗ Error moving directory: {e}")
+
+    return cleanup_actions
+
+def mark_directory_processed(dir_info, state):
+    """Mark a directory as processed in state.json"""
+    if "polling_processed_dirs" not in state:
+        state["polling_processed_dirs"] = []
+
+    # Add to processed list if not already there
+    if dir_info["source_path"] not in state["polling_processed_dirs"]:
+        state["polling_processed_dirs"].append(dir_info["source_path"])
+
+    state["current_processing_dir"] = None
+    state["last_polling_check"] = datetime.now().isoformat()
+
+    save_state(state)
+    print(f"  ✓ Updated state: marked {dir_info['name']} as processed")
+
+def export_results_to_excel(validated_data, output_file):
+    """Export validated data to Excel with styling"""
+    success = export_to_excel_with_styling(validated_data, output_file, COL_MAPPING)
+
+    if success:
+        # Print summary statistics
+        total_specimens = sum(len(df) for df in validated_data.values() if df is not None and not df.empty)
+        total_manual_check = sum(
+            df['needs_manual_check'].sum() if df is not None and 'needs_manual_check' in df.columns else 0
+            for df in validated_data.values()
+        )
+
+        print(f"\n=== Overall Summary ===")
+        print(f"Total specimens extracted: {total_specimens}")
+        print(f"Specimens needing manual check: {total_manual_check}")
+
+        if total_specimens > 0:
+            percentage = (total_manual_check / total_specimens) * 100
+            print(f"Manual check rate: {percentage:.1f}%")
+
+            # Calculate expected reduction in manual review
+            expected_reduction = 70  # Target from requirements
+            current_rate = percentage
+            if current_rate > 0:
+                reduction_achieved = min(100, (100 - current_rate) / 100 * 100)
+                print(f"Manual review reduction achieved: {reduction_achieved:.1f}% (target: {expected_reduction}%)")
+
+        return True
+    else:
+        print("❌ Excel export failed")
+        return False
+
+def process_target_directory(target_dir, config, mode="sequential"):
+    """
+    Process a single target directory containing PDF files
+
+    Args:
+        target_dir: Path to directory containing PDFs
+        config: Configuration dictionary
+        mode: Processing mode - "sequential" or "parallel"
+
+    Returns:
+        dict: Processing results and statistics
+    """
+    print(f"\n=== Processing Directory: {os.path.basename(target_dir)} ===")
+
+    # Use temporary files directory for processing
+    temp_files_dir = TARGET_DIRECTORY
+
+    # Clear existing files in temp directory
+    if os.path.exists(temp_files_dir):
+        for f in os.listdir(temp_files_dir):
+            f_path = os.path.join(temp_files_dir, f)
+            try:
+                if os.path.isfile(f_path):
+                    os.remove(f_path)
+            except Exception as e:
+                print(f"Warning: Could not clear {f_path}: {e}")
+    else:
+        os.makedirs(temp_files_dir)
+
+    # Copy PDFs from target directory to temp location
+    pdf_files = [f for f in os.listdir(target_dir) if f.lower().endswith('.pdf')]
+    if not pdf_files:
+        print(f"No PDF files found in {target_dir}")
+        return None
+
+    print(f"Found {len(pdf_files)} PDF files")
+
+    for pdf_file in pdf_files:
+        src = os.path.join(target_dir, pdf_file)
+        dst = os.path.join(temp_files_dir, pdf_file)
+        try:
+            shutil.copy2(src, dst)
+        except Exception as e:
+            print(f"Error copying {pdf_file}: {e}")
+            return None
+
+    # Process based on mode
+    if mode == "parallel":
+        max_workers = config.get("max_concurrent_files", 10)
+        processing_result = process_directory_parallel(temp_files_dir, max_workers)
+    else:
+        processing_result = process_directory_sequential(temp_files_dir)
+
+    if not processing_result or "results" not in processing_result:
+        print("❌ Processing failed")
+        return None
+
+    # Validate and prepare data for export
+    print("\nApplying physical validation...")
+    validated_data = {}
+
+    processed_data = processing_result["results"]
+    for group, items in processed_data.items():
+        if items:
+            df = pd.DataFrame(items)
+
+            # Ensure all expected columns exist
+            for col in COL_MAPPING.keys():
+                if col not in df.columns:
+                    df[col] = "" if col == "fcy150" else 0.0
+
+            # Log missing data summary
+            critical_fields = ['fc_value', 'fy', 'b', 'h', 't', 'n_exp']
+            missing_data_fields = []
+            for field in critical_fields:
+                if field in df.columns:
+                    missing_count = df[field].isna().sum()
+                    if missing_count > 0:
+                        missing_data_fields.append(f"{field}: {missing_count}")
+            if missing_data_fields:
+                print(f"  ⚠️  Missing data detected - {', '.join(missing_data_fields)} records")
+
+            # Apply physical validation
+            df_validated = validate_dataframe(df)
+            validated_data[group] = df_validated
+
+            # Generate validation report
+            report = generate_validation_report(df_validated, group)
+            print(report)
+        else:
+            validated_data[group] = pd.DataFrame()
+
+    # Export to Excel
+    output_file = os.path.join(OUTPUT_DIRECTORY, "CFST_Extracted_Data.xlsx")
+    success = export_results_to_excel(validated_data, output_file)
+
+    if success:
+        print(f"✅ Extraction complete for {os.path.basename(target_dir)}")
+        return {
+            "validated_data": validated_data,
+            "output_file": output_file,
+            "summary": processing_result.get("summary", {})
+        }
+    else:
+        print(f"❌ Extraction failed for {os.path.basename(target_dir)}")
+        return None
+
 def main():
     # Load config and state
     config = load_config()
     state = load_state()
 
-    # Import PDFs from Windows if configured
-    if config.get("auto_cleanup", True):
-        print("\n=== Starting PDF Automation Workflow ===")
-        print(f"Batch #{state.get('batch_number', 1)} - Last archive: {state.get('last_archive_date', 'Never')}")
-
-        # Import PDFs
-        import_success = import_pdfs_from_windows(config)
-        if not import_success:
-            print("PDF import failed or no PDFs found. Exiting workflow.")
-            return
-
     # Initialize OpenAI client for DeepSeek with instructor patch
+    global client
     client = instructor.patch(OpenAI(api_key=API_KEY, base_url=BASE_URL))
 
+    # Check if polling mode is enabled
+    if config.get("polling_mode", False):
+        print("\n" + "="*60)
+        print("POLLING MODE ENABLED")
+        print("="*60)
+
+        # Get list of directories to process
+        pending_dirs = get_pending_directories(config, state)
+
+        if not pending_dirs:
+            print("\n✅ No directories to process. All pending directories have been completed.")
+            print(f"Processed directories: {len(state.get('polling_processed_dirs', []))}")
+            return
+
+        print(f"\nFound {len(pending_dirs)} directories to process:")
+        for i, dir_info in enumerate(pending_dirs, 1):
+            print(f"  {i}. {dir_info['name']} ({dir_info['pdf_count']} PDFs)")
+
+        # Process each directory
+        for i, dir_info in enumerate(pending_dirs, 1):
+            print("\n" + "="*60)
+            print(f"Processing [{i}/{len(pending_dirs)}]: {dir_info['name']}")
+            print("="*60)
+
+            # Update state: set current processing directory
+            state["current_processing_dir"] = dir_info["source_path"]
+            save_state(state)
+
+            # Determine processing mode
+            mode = "parallel" if config.get("parallel_processing", False) else "sequential"
+            max_workers = config.get("max_concurrent_files", 10)
+
+            print(f"Mode: {mode}")
+            if mode == "parallel":
+                print(f"Max concurrent files: {max_workers}")
+
+            # Process the directory
+            result = process_target_directory(dir_info["source_path"], config, mode)
+
+            if result:
+                # Archive results
+                print("\n--- Archive Phase ---")
+                archive_success = archive_results(config, state)
+
+                if archive_success:
+                    print(f"  ✓ Archived results for {dir_info['name']}")
+                else:
+                    print(f"  ⚠️  Archive failed for {dir_info['name']}")
+
+                # Cleanup: delete Excel and move source directory
+                print("\n--- Cleanup Phase ---")
+                cleanup_actions = cleanup_directory(dir_info, config)
+
+                # Mark as processed
+                mark_directory_processed(dir_info, state)
+
+                print(f"\n✅ Completed {dir_info['name']}")
+            else:
+                print(f"\n❌ Failed to process {dir_info['name']}")
+                # Continue to next directory even if this one failed
+
+        print("\n" + "="*60)
+        print("POLLING COMPLETE")
+        print("="*60)
+        print(f"\nProcessed {len(pending_dirs)} directories successfully.")
+
+    else:
+        # Legacy mode: Process files in TARGET_DIRECTORY
+        print("\n=== Starting PDF Automation Workflow (Legacy Mode) ===")
+        print(f"Batch #{state.get('batch_number', 1)} - Last archive: {state.get('last_archive_date', 'Never')}")
+
+        # Import PDFs from Windows if auto_cleanup is enabled
+        if config.get("auto_cleanup", True):
+            import_success = import_pdfs_from_windows(config)
+            if not import_success:
+                print("PDF import failed or no PDFs found. Exiting workflow.")
+                return
+
+        # Run the legacy processing workflow
+        run_legacy_workflow(config, state)
+
+def run_legacy_workflow(config, state):
+    """Legacy sequential processing workflow for backward compatibility"""
     # Storage for processed data
     all_data = {
         "Group_A": [],
@@ -485,10 +806,10 @@ def main():
 
     for filename in pdf_files:
         file_path = os.path.join(TARGET_DIRECTORY, filename)
-        
+
         # 1. Read PDF
         text = extract_text_from_pdf(file_path)
-        
+
         if not text.strip():
              print(f"  - Extraction failed: Empty text for {filename}")
              move_failed_file(file_path)
@@ -497,17 +818,17 @@ def main():
         # 2. AI Extraction
         print(f"  - Calling AI extraction for {filename}...")
         json_data = extract_data_with_ai(client, text)
-        
+
         if json_data:
             # Check validity first
             is_valid = json_data.get("is_valid", True) # Default to True if not present, but prompt asks for it
-            
+
             if not is_valid:
                 reason = json_data.get("reason", "No reason provided")
                 print(f"  - File excluded: {filename}. Reason: {reason}")
                 move_excluded_file(file_path)
                 continue
-            
+
             # 3. Post-processing & Ref.No Injection
             success = False
             for group in ["Group_A", "Group_B", "Group_C"]:
@@ -517,7 +838,7 @@ def main():
                         all_data[group].append(item)
                     if json_data[group]: # If we found any items in any group
                          success = True
-            
+
             print(f"  - Successfully processed {filename}")
         else:
             print(f"  - Failed to extract data for {filename} (API Error or Invalid JSON)")
@@ -536,6 +857,17 @@ def main():
             for col in COL_MAPPING.keys():
                 if col not in df.columns:
                     df[col] = "" if col == "fcy150" else 0.0
+
+            # Log missing data summary
+            critical_fields = ['fc_value', 'fy', 'b', 'h', 't', 'n_exp']
+            missing_data_fields = []
+            for field in critical_fields:
+                if field in df.columns:
+                    missing_count = df[field].isna().sum()
+                    if missing_count > 0:
+                        missing_data_fields.append(f"{field}: {missing_count}")
+            if missing_data_fields:
+                print(f"  ⚠️  Missing data detected - {', '.join(missing_data_fields)} records")
 
             # Apply physical validation
             df_validated = validate_dataframe(df)

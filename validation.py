@@ -5,7 +5,7 @@ Based on requirements spec: 06-requirements-spec.md
 
 import pandas as pd
 import numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 
 def calculate_inner_radius(r0: float, h: float, t: float) -> float:
@@ -93,7 +93,7 @@ def calculate_steel_area(b: float, h: float, t: float, r0: float, r1: float) -> 
 
 
 def calculate_theoretical_capacity(fc_value: float, fy: float,
-                                  b: float, h: float, t: float, r0: float) -> float:
+                                  b: float, h: float, t: float, r0: float) -> Optional[float]:
     """
     Calculate theoretical capacity Nt for CFST sections.
 
@@ -108,8 +108,12 @@ def calculate_theoretical_capacity(fc_value: float, fy: float,
         r0: External corner/radius (mm)
 
     Returns:
-        Theoretical capacity Nt (kN)
+        Theoretical capacity Nt (kN), or None if any critical parameter is None
     """
+    # Check for None values in critical parameters
+    if any(v is None for v in [fc_value, fy, b, h, t, r0]):
+        return None
+
     # Calculate inner radius
     r1 = calculate_inner_radius(r0, h, t)
 
@@ -127,7 +131,7 @@ def calculate_theoretical_capacity(fc_value: float, fy: float,
     return Nt_kN
 
 
-def calculate_validation_coefficient(n_exp: float, n_theory: float) -> float:
+def calculate_validation_coefficient(n_exp: float, n_theory: float) -> Optional[float]:
     """
     Calculate validation coefficient ξ.
 
@@ -138,8 +142,10 @@ def calculate_validation_coefficient(n_exp: float, n_theory: float) -> float:
         n_theory: Theoretical capacity (kN)
 
     Returns:
-        Validation coefficient ξ (dimensionless)
+        Validation coefficient ξ (dimensionless), or None if parameters are None
     """
+    if n_exp is None or n_theory is None:
+        return None
     if n_theory == 0:
         return float('inf')
     return n_exp / n_theory
@@ -153,6 +159,7 @@ def determine_manual_check_status(xi: float) -> bool:
     - Green (0.8 < ξ < 2.5): Data correct, no manual check needed
     - Red (ξ > 10 or ξ < 0.1): Unit errors, batch correction required
     - Yellow: Manual review required
+    - None or NaN: Missing data, manual check needed
 
     Args:
         xi: Validation coefficient
@@ -160,6 +167,8 @@ def determine_manual_check_status(xi: float) -> bool:
     Returns:
         True if manual check is needed, False otherwise
     """
+    if xi is None or (isinstance(xi, float) and np.isnan(xi)):
+        return True  # Missing data, needs manual check
     if 0.8 < xi < 2.5:
         return False  # Green zone, no manual check needed
     elif xi > 10 or xi < 0.1:
@@ -176,6 +185,7 @@ def validate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     - N_theory: Theoretical capacity (kN)
     - xi: Validation coefficient
     - needs_manual_check: Boolean flag for manual review
+    - has_missing_data: Boolean flag indicating if any critical data is missing
 
     Args:
         df: DataFrame with columns: fc_value, fy, b, h, t, r0, n_exp
@@ -185,6 +195,10 @@ def validate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """
     # Make a copy to avoid modifying original
     result_df = df.copy()
+
+    # Check for missing critical data
+    critical_fields = ['fc_value', 'fy', 'b', 'h', 't', 'n_exp']
+    result_df['has_missing_data'] = result_df[critical_fields].isnull().any(axis=1)
 
     # Calculate theoretical capacity for each row
     result_df['N_theory'] = result_df.apply(
@@ -202,6 +216,9 @@ def validate_dataframe(df: pd.DataFrame) -> pd.DataFrame:
 
     # Determine if manual check is needed
     result_df['needs_manual_check'] = result_df['xi'].apply(determine_manual_check_status)
+
+    # Also mark as needing check if data is missing
+    result_df['needs_manual_check'] = result_df['needs_manual_check'] | result_df['has_missing_data']
 
     return result_df
 

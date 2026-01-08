@@ -12,23 +12,23 @@ class SpecimenData(BaseModel):
 
     # Existing 15 fields from COL_MAPPING (Workflow 1.0)
     ref_no: str = Field(default="", description="Reference number (auto-filled with filename)")
-    fc_value: float = Field(description="Concrete compressive strength value (MPa)")
-    fc_type: str = Field(description="Concrete type description (e.g., 'Cube 150', 'Cylinder 150x300')")
-    specimen_label: str = Field(description="Unique ID/Label of the specimen")
-    fy: float = Field(description="Yield strength of steel (MPa)")
+    fc_value: Optional[float] = Field(default=None, description="Concrete compressive strength value (MPa)")
+    fc_type: Optional[str] = Field(default=None, description="Concrete type description (e.g., 'Cube 150', 'Cylinder 150x300')")
+    specimen_label: Optional[str] = Field(default=None, description="Unique ID/Label of the specimen")
+    fy: Optional[float] = Field(default=None, description="Yield strength of steel (MPa)")
     fcy150: str = Field(default="", description="Always empty string")
-    r_ratio: float = Field(default=0.0, description="Recycled aggregate ratio (%)")
-    b: float = Field(description="Width/Diameter/Major axis (mm)")
-    h: float = Field(description="Depth/Diameter/Minor axis (mm)")
-    t: float = Field(description="Thickness of the steel tube (mm)")
-    r0: float = Field(description="External corner/radius (mm)")
-    L: float = Field(description="Length of the specimen (mm)")
-    e1: float = Field(default=0.0, description="Eccentricity 1 (mm)")
-    e2: float = Field(default=0.0, description="Eccentricity 2 (mm)")
-    n_exp: float = Field(description="Experimental ultimate bearing capacity (kN)")
+    r_ratio: Optional[float] = Field(default=0.0, description="Recycled aggregate ratio (%)")
+    b: Optional[float] = Field(default=None, description="Width/Diameter/Major axis (mm)")
+    h: Optional[float] = Field(default=None, description="Depth/Diameter/Minor axis (mm)")
+    t: Optional[float] = Field(default=None, description="Thickness of the steel tube (mm)")
+    r0: Optional[float] = Field(default=None, description="External corner/radius (mm)")
+    L: Optional[float] = Field(default=None, description="Length of the specimen (mm)")
+    e1: Optional[float] = Field(default=0.0, description="Eccentricity 1 (mm)")
+    e2: Optional[float] = Field(default=0.0, description="Eccentricity 2 (mm)")
+    n_exp: Optional[float] = Field(default=None, description="Experimental ultimate bearing capacity (kN)")
 
     # New field for Workflow 2.0
-    source_evidence: str = Field(description="Text evidence from source document supporting each value")
+    source_evidence: Optional[str] = Field(default=None, description="Text evidence from source document supporting each value")
 
 
 class ExtractionResult(BaseModel):

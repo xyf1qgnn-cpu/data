@@ -4,5 +4,12 @@
   "auto_cleanup": true,
   "auto_increment": true,
   "delete_existing_before_import": true,
-  "cleanup_after_archive": true
+  "cleanup_after_archive": true,
+  "polling_mode": true,
+  "polling_source_path": "/mnt/e/Documents/data_unextracted",
+  "processed_dirs_location": "/mnt/e/Documents/processed_directories",
+  "parallel_processing": true,
+  "max_concurrent_files": 5,
+  "delete_excel_after_archive": true,
+  "move_source_after_processing": true
 }

@@ -1,6 +1,9 @@
 {
-  "batch_number": 8,
-  "last_archive_date": "2026-01-07",
-  "total_archives": 3,
-  "last_import_date": "2026-01-07"
+  "batch_number": 1,
+  "last_archive_date": "2026-01-08",
+  "total_archives": 0,
+  "last_import_date": "2026-01-07",
+  "polling_processed_dirs": [],
+  "current_processing_dir": null,
+  "last_polling_check": "2026-01-08T09:44:30.013198"
 }
